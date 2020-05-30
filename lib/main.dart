@@ -1,117 +1,185 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
-void main() {
-  runApp(MyApp());
-}
+import 'support.dart';
+import 'albumView.dart';
+import 'searchScreen.dart';
 
-class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
+void main() => runApp(MusicApp());
+
+class MusicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Music',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or simply save your changes to "hot reload" in a Flutter IDE).
-        // Notice that the counter didn't reset back to zero; the application
-        // is not restarted.
-        primarySwatch: Colors.blue,
-        // This makes the visual density adapt to the platform that you run
-        // the app on. For desktop platforms, the controls will be smaller and
-        // closer together (more dense) than on mobile platforms.
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        brightness: Brightness.dark,
+        primaryColor: Colors.blue[900],
+        accentColor: Colors.blue[700],
+        backgroundColor: Colors.black,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MainPage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
+const double NOW_PLAYING_HEIGHT = 80.0;
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class MainPage extends StatefulWidget {
+  MainPage({Key key}) : super(key: key);
 
   @override
-  _MyHomePageState createState() => _MyHomePageState();
+  _MainPageState createState() => _MainPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MainPageState extends State<MainPage> {
+  int _mainPageIndex = 0;
+  bool _offlineMode = false;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  @override
+  void initState() {
+    super.initState();
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug painting" (press "p" in the console, choose the
-          // "Toggle Debug Paint" action from the Flutter Inspector in Android
-          // Studio, or the "Toggle Debug Paint" command in Visual Studio Code)
-          // to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Text(
-              'You have pushed the button this many times:',
+      body: _content(context),
+      backgroundColor: Theme.of(context).backgroundColor,
+      bottomNavigationBar: Material(
+        elevation: 16.0,
+        child: BottomNavigationBar(
+          type: BottomNavigationBarType.fixed,
+          onTap: (index) => setState(() => _mainPageIndex = index),
+          currentIndex: _mainPageIndex,
+          items: <BottomNavigationBarItem>[
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.explore),
+              title: const Text("Explore"),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.history),
+              title: const Text("Recent"),
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.library_music),
+              title: const Text("Library"),
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.insert_chart),
+              title: const Text("Stats"),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  Widget _content(BuildContext context) {
+    switch (_mainPageIndex) {
+      case 0:
+        return _buildContent(
+          AlbumView(
+            key: Key("explore"),
+            albumName: "OK Computer OKNOTOK 1997 2017",
+            artist: "Radiohead",
+          ),
+        );
+      case 1:
+        return _buildContent(
+          AlbumView(
+            key: Key("recent"),
+            albumName: "Crime of the Century (Remastered)",
+            artist: "Supertramp",
+          ),
+        );
+      case 2:
+        return _buildContent(
+          AlbumView(
+            key: Key("library"),
+            albumName: "In Rainbows",
+            artist: "Radiohead",
+          ),
+        );
+      case 3:
+        return _buildContent(
+          AlbumView(
+            key: Key("stats"),
+            albumName: "Hail to the Thief",
+            artist: "Radiohead",
+          ),
+        );
+      default:
+        return null;
+    }
+  }
+
+  Widget _buildContent(Widget content, {Widget title}) {
+    return Stack(
+      children: <Widget>[
+        ScrollConfiguration(
+          behavior: NoGlowScrollBehavior(),
+          child: CustomScrollView(
+            physics: const ClampingScrollPhysics(),
+            slivers: <Widget>[
+              _appBar(context, title),
+              content,
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  width: MediaQuery.of(context).size.width,
+                  height: NOW_PLAYING_HEIGHT,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          bottom: 0.0,
+          child: _nowPlaying(context),
+        ),
+      ],
+    );
+  }
+
+  SliverAppBar _appBar(BuildContext context, Widget title) {
+    return SliverAppBar(
+      elevation: 10.0,
+      title: title,
+      primary: true,
+      floating: true,
+      snap: true,
+      backgroundColor: Colors.transparent,
+      actions: <Widget>[
+        IconButton(
+          icon: Icon(Icons.file_download,
+              color: _offlineMode
+                  ? Theme.of(context).accentColor
+                  : IconTheme.of(context).color),
+          tooltip: "Offline Mode",
+          onPressed: () => setState(() => _offlineMode = !_offlineMode),
+        ),
+        IconButton(
+          icon: const Icon(Icons.cast),
+          tooltip: "Playback Devices",
+          onPressed: () => null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.search),
+          tooltip: "Search",
+          onPressed: () => Navigator.of(context).push(SearchOverlay()),
+        )
+      ],
+    );
+  }
+
+  Widget _nowPlaying(BuildContext context) {
+    return Container(
+        width: MediaQuery.of(context).size.width,
+        height: NOW_PLAYING_HEIGHT,
+        padding: EdgeInsets.all(16.0),
+        child: Material(
+          elevation: 24.0,
+          child: Placeholder(),
+        ));
   }
 }
