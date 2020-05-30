@@ -54,3 +54,29 @@ class AlbumSearchResult {
         artists = artists,
         albumArtUri = albumArtUri;
 }
+
+enum ContentType { artist, album, track }
+
+class Content {
+  final ContentType type;
+  final String artist, album, track;
+
+  const Content.artist({@required String artist})
+      : type = ContentType.artist,
+        artist = artist,
+        album = null,
+        track = null;
+
+  const Content.album({@required String artist, @required String album})
+      : type = ContentType.album,
+        artist = artist,
+        album = album,
+        track = null;
+
+  const Content.track(
+      {@required String artist, @required String album, @required String track})
+      : type = ContentType.track,
+        artist = artist,
+        album = album,
+        track = track;
+}

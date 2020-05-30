@@ -9,6 +9,7 @@ import 'support.dart';
 import 'swipeable.dart';
 import 'listEntry.dart';
 import 'search.dart';
+import 'main.dart';
 
 class SearchOverlay extends ModalRoute<void> {
   @override
@@ -115,6 +116,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     foregroundColor: Color(0xFF222222).withOpacity(0.9),
                     callbacks: {
                       SwipeEvent.addToQueue: () => null,
+                      SwipeEvent.playNext: () => null,
+                      SwipeEvent.playNow: () => null,
+                      SwipeEvent.goToArtist: () => null,
+                      SwipeEvent.select: () {
+                        Navigator.of(context).push(MainOverlay(Content.album(
+                            artist: snapshot.data[index].artists.join(", "),
+                            album: snapshot.data[index].title)));
+                      },
                     },
                   );
                 } else if (snapshot.hasError && index == 0) {

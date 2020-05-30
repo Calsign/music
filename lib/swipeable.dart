@@ -130,38 +130,44 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
 
     if (widget.hasCallback(SwipeEvent.addToQueue)) {
       list.add(Triple("Add to queue", Icons.queue_music, () {
-        widget.invokeCallback(SwipeEvent.addToQueue);
         Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.addToQueue);
       }));
     }
     if (widget.hasCallback(SwipeEvent.playNext)) {
       list.add(Triple("Play next", Icons.queue_music, () {
-        widget.invokeCallback(SwipeEvent.playNext);
         Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.playNext);
       }));
     }
-    if (widget.hasCallback(SwipeEvent.playNow) != null) {
+    if (widget.hasCallback(SwipeEvent.playNow)) {
       list.add(Triple("Play from here", Icons.play_circle_outline, () {
-        widget.invokeCallback(SwipeEvent.playNow);
         Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.playNow);
       }));
     }
     if (widget.hasCallback(SwipeEvent.delete)) {
       list.add(Triple("Remove", Icons.delete_outline, () {
-        widget.invokeCallback(SwipeEvent.delete);
         Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.delete);
       }));
     }
     if (widget.hasCallback(SwipeEvent.goToArtist)) {
       list.add(Triple("Go to artist", Icons.library_music, () {
-        widget.invokeCallback(SwipeEvent.goToArtist);
         Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.goToArtist);
       }));
     }
     if (widget.hasCallback(SwipeEvent.goToAlbum)) {
       list.add(Triple("Go to album", Icons.album, () {
-        widget.invokeCallback(SwipeEvent.goToAlbum);
         Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.goToAlbum);
+      }));
+    }
+    if (widget.hasCallback(SwipeEvent.select)) {
+      list.add(Triple("View details", Icons.info_outline, () {
+        Navigator.pop(context);
+        widget.invokeCallback(SwipeEvent.select);
       }));
     }
 
@@ -257,7 +263,10 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
     Widget foreground = Material(
       color: widget._foregroundColor ?? Theme.of(context).backgroundColor,
       child: InkWell(
-        onTap: () => null, // this allows the splash to appear?
+        onTap: () {
+          FocusScope.of(context).unfocus();
+          widget.invokeCallback(SwipeEvent.select);
+        }, // this allows the splash to appear?
         child: SizedBox(
           width: width,
           height: height,
@@ -315,7 +324,9 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
     Widget background = Material(
         color: position > 0
             ? (playNowSlide ? Theme.of(context).primaryColor : Colors.white12)
-            : (deleteSlide ? Colors.red : (widget._backgroundColor ?? Colors.white12)),
+            : (deleteSlide
+                ? Colors.red
+                : (widget._backgroundColor ?? Colors.white12)),
         child: Container(
             width: width,
             height: height,
@@ -345,7 +356,10 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
               axis: Axis.vertical,
               child: SizedBox(width: width, height: height, child: stack))
           : stack,
-      onTapUp: (details) => widget.invokeCallback(SwipeEvent.select),
+      onTap: () {
+        FocusScope.of(context).unfocus();
+        widget.invokeCallback(SwipeEvent.select);
+      },
       onLongPress:
           widget._buildPopupContent != null ? () => showOptions(context) : null,
       onHorizontalDragStart: (details) =>

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'package:provider/provider.dart';
+
 import 'support.dart';
+import 'data.dart';
+import 'model.dart';
 import 'albumView.dart';
 import 'searchScreen.dart';
 
@@ -10,111 +14,114 @@ void main() => runApp(MusicApp());
 class MusicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Music',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        primaryColor: Colors.blue[900],
-        accentColor: Colors.blue[700],
-        backgroundColor: Colors.black,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => DownloadedOnlyModel()),
+        ChangeNotifierProvider(create: (context) => MainPageIndexModel()),
+      ],
+      child: MaterialApp(
+        title: 'Music',
+        theme: ThemeData(
+          brightness: Brightness.dark,
+          primaryColor: Colors.blue[900],
+          accentColor: Colors.blue[700],
+          backgroundColor: Colors.black,
+        ),
+        home: MainPage(),
       ),
-      home: MainPage(),
     );
   }
 }
 
 const double NOW_PLAYING_HEIGHT = 80.0;
 
-class MainPage extends StatefulWidget {
-  MainPage({Key key}) : super(key: key);
+class MainPage extends StatelessWidget {
+  Content _content;
 
-  @override
-  _MainPageState createState() => _MainPageState();
-}
-
-class _MainPageState extends State<MainPage> {
-  int _mainPageIndex = 0;
-  bool _offlineMode = false;
-
-  @override
-  void initState() {
-    super.initState();
-  }
+  MainPage({Key key, Content content})
+      : _content = content,
+        super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _content(context),
+      body: _getContent(context),
       backgroundColor: Theme.of(context).backgroundColor,
       bottomNavigationBar: Material(
         elevation: 16.0,
-        child: BottomNavigationBar(
-          type: BottomNavigationBarType.fixed,
-          onTap: (index) => setState(() => _mainPageIndex = index),
-          currentIndex: _mainPageIndex,
-          items: <BottomNavigationBarItem>[
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.explore),
-              title: const Text("Explore"),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.history),
-              title: const Text("Recent"),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.library_music),
-              title: const Text("Library"),
-            ),
-            BottomNavigationBarItem(
-              icon: const Icon(Icons.insert_chart),
-              title: const Text("Stats"),
-            ),
-          ],
+        child: Consumer<MainPageIndexModel>(
+          builder: (context, model, child) => BottomNavigationBar(
+            type: BottomNavigationBarType.fixed,
+            onTap: (index) {
+              model.mainPageIndex = index;
+              Navigator.popUntil(
+                  context, ModalRoute.withName(Navigator.defaultRouteName));
+            },
+            currentIndex: model.mainPageIndex,
+            items: const <BottomNavigationBarItem>[
+              const BottomNavigationBarItem(
+                icon: const Icon(Icons.explore),
+                title: const Text("Explore"),
+              ),
+              const BottomNavigationBarItem(
+                icon: const Icon(Icons.history),
+                title: const Text("Recent"),
+              ),
+              const BottomNavigationBarItem(
+                icon: const Icon(Icons.library_music),
+                title: const Text("Library"),
+              ),
+              const BottomNavigationBarItem(
+                icon: const Icon(Icons.insert_chart),
+                title: const Text("Stats"),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _content(BuildContext context) {
-    switch (_mainPageIndex) {
-      case 0:
-        return _buildContent(
-          AlbumView(
-            key: Key("explore"),
-            albumName: "OK Computer OKNOTOK 1997 2017",
-            artist: "Radiohead",
-          ),
-        );
-      case 1:
-        return _buildContent(
-          AlbumView(
-            key: Key("recent"),
-            albumName: "Crime of the Century (Remastered)",
-            artist: "Supertramp",
-          ),
-        );
-      case 2:
-        return _buildContent(
-          AlbumView(
-            key: Key("library"),
-            albumName: "In Rainbows",
-            artist: "Radiohead",
-          ),
-        );
-      case 3:
-        return _buildContent(
-          AlbumView(
-            key: Key("stats"),
-            albumName: "Hail to the Thief",
-            artist: "Radiohead",
-          ),
-        );
-      default:
-        return null;
+  Widget _getContent(BuildContext context) {
+    if (_content != null) {
+      switch (_content.type) {
+        case ContentType.artist:
+          return null;
+        case ContentType.album:
+          return _buildContent(
+            context,
+            AlbumView(
+              key: Key("album/${_content.artist}/${_content.album}"),
+              albumName: _content.album,
+              artist: _content.artist,
+            ),
+          );
+        case ContentType.track:
+          return null;
+      }
     }
+
+    return Consumer<MainPageIndexModel>(builder: (context, model, child) {
+      switch (model.mainPageIndex) {
+        case 0:
+          return _buildContent(
+              context, SliverFillRemaining(child: Placeholder()));
+        case 1:
+          return _buildContent(
+              context, SliverFillRemaining(child: Placeholder()));
+        case 2:
+          return _buildContent(
+              context, SliverFillRemaining(child: Placeholder()));
+        case 3:
+          return _buildContent(
+              context, SliverFillRemaining(child: Placeholder()));
+        default:
+          return null;
+      }
+    });
   }
 
-  Widget _buildContent(Widget content, {Widget title}) {
+  Widget _buildContent(BuildContext context, Widget content, {Widget title}) {
     return Stack(
       children: <Widget>[
         ScrollConfiguration(
@@ -150,13 +157,15 @@ class _MainPageState extends State<MainPage> {
       snap: true,
       backgroundColor: Colors.transparent,
       actions: <Widget>[
-        IconButton(
-          icon: Icon(Icons.file_download,
-              color: _offlineMode
-                  ? Theme.of(context).accentColor
-                  : IconTheme.of(context).color),
-          tooltip: "Offline Mode",
-          onPressed: () => setState(() => _offlineMode = !_offlineMode),
+        Consumer<DownloadedOnlyModel>(
+          builder: (context, model, child) => IconButton(
+            icon: Icon(Icons.file_download,
+                color: model.downloadedOnly
+                    ? Theme.of(context).accentColor
+                    : IconTheme.of(context).color),
+            tooltip: "Offline Mode",
+            onPressed: () => model.toggle(),
+          ),
         ),
         IconButton(
           icon: const Icon(Icons.cast),
@@ -182,4 +191,39 @@ class _MainPageState extends State<MainPage> {
           child: Placeholder(),
         ));
   }
+}
+
+class MainOverlay extends ModalRoute<void> {
+  Content _content;
+
+  MainOverlay(Content content)
+      : _content = content,
+        super();
+
+  @override
+  Color get barrierColor => Colors.black;
+
+  @override
+  bool get barrierDismissible => false;
+
+  @override
+  String get barrierLabel => null;
+
+  @override
+  Widget buildPage(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation) {
+    return FadeTransition(
+      opacity: animation,
+      child: MainPage(content: _content),
+    );
+  }
+
+  @override
+  bool get maintainState => true;
+
+  @override
+  bool get opaque => true;
+
+  @override
+  Duration get transitionDuration => Duration(milliseconds: 300);
 }
