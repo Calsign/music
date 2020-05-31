@@ -50,7 +50,7 @@ class SearchScreen extends StatefulWidget {
 class _SearchScreenState extends State<SearchScreen> {
   TextEditingController queryTextController;
   StreamController<String> queryStreamController;
-  Stream<List<AlbumSearchResult>> searchResultStream;
+  Stream<List<ReleaseGroupSearchResult>> searchResultStream;
 
   @override
   void initState() {
@@ -58,7 +58,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
     queryTextController = TextEditingController();
     queryStreamController = StreamController();
-    searchResultStream = searchStream(queryStreamController.stream);
+    searchResultStream = searchStream(queryStreamController.stream)
+        .map((results) => results.sortedByBest());
   }
 
   @override
@@ -85,7 +86,7 @@ class _SearchScreenState extends State<SearchScreen> {
         backgroundColor: Color(0xFF444444),
         title: TextField(
           autofocus: true,
-          style: TextStyle(fontSize: 18.0),
+          style: TextStyle(fontSize: 20.0),
           decoration: null,
           controller: queryTextController,
           onChanged: (query) => _updateQuery(query),
@@ -96,15 +97,14 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
         actions: <Widget>[
           IconButton(
-            icon: Icon(Icons.close),
-            onPressed: () => _updateQuery("", updateController: true),
-          ),
+              icon: Icon(Icons.close),
+              onPressed: () => _updateQuery("", updateController: true)),
         ],
       ),
       body: ScrollConfiguration(
         behavior: NoGlowScrollBehavior(),
         child: NotificationListener<ScrollStartNotification>(
-          child: StreamBuilder<List<AlbumSearchResult>>(
+          child: StreamBuilder<List<ReleaseGroupSearchResult>>(
             initialData: [],
             stream: searchResultStream,
             builder: (context, snapshot) => ListView.builder(
@@ -112,7 +112,8 @@ class _SearchScreenState extends State<SearchScreen> {
               itemBuilder: (context, index) {
                 if (snapshot.hasData && index < snapshot.data.length) {
                   return ListEntry(
-                    ListEntryData.ofAlbumSearchResult(snapshot.data[index]),
+                    ListEntryData.ofReleaseGroupSearchResult(
+                        snapshot.data[index]),
                     foregroundColor: Color(0xFF222222).withOpacity(0.9),
                     callbacks: {
                       SwipeEvent.addToQueue: () => null,
@@ -120,9 +121,8 @@ class _SearchScreenState extends State<SearchScreen> {
                       SwipeEvent.playNow: () => null,
                       SwipeEvent.goToArtist: () => null,
                       SwipeEvent.select: () {
-                        Navigator.of(context).push(MainOverlay(Content.album(
-                            artist: snapshot.data[index].artists.join(", "),
-                            album: snapshot.data[index].title)));
+                        Navigator.of(context)
+                            .push(MainOverlay(snapshot.data[index]));
                       },
                     },
                   );

@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import 'support.dart';
 import 'data.dart';
 import 'model.dart';
-import 'albumView.dart';
+import 'releaseGroupView.dart';
 import 'searchScreen.dart';
 
 void main() => runApp(MusicApp());
@@ -36,9 +36,9 @@ class MusicApp extends StatelessWidget {
 const double NOW_PLAYING_HEIGHT = 80.0;
 
 class MainPage extends StatelessWidget {
-  Content _content;
+  final Mbid _content;
 
-  MainPage({Key key, Content content})
+  MainPage({Key key, Mbid content})
       : _content = content,
         super(key: key);
 
@@ -84,19 +84,20 @@ class MainPage extends StatelessWidget {
 
   Widget _getContent(BuildContext context) {
     if (_content != null) {
-      switch (_content.type) {
-        case ContentType.artist:
+      switch (_content.mbidType) {
+        case MbidType.artist:
           return null;
-        case ContentType.album:
+        case MbidType.releaseGroup:
           return _buildContent(
             context,
-            AlbumView(
-              key: Key("album/${_content.artist}/${_content.album}"),
-              albumName: _content.album,
-              artist: _content.artist,
+            ReleaseGroupView.musicbrainz(
+              key: Key("album/${_content.mbid}"),
+              mbid: _content.mbid,
             ),
           );
-        case ContentType.track:
+        case MbidType.release:
+          return null;
+        case MbidType.recording:
           return null;
       }
     }
@@ -194,9 +195,9 @@ class MainPage extends StatelessWidget {
 }
 
 class MainOverlay extends ModalRoute<void> {
-  Content _content;
+  Mbid _content;
 
-  MainOverlay(Content content)
+  MainOverlay(Mbid content)
       : _content = content,
         super();
 

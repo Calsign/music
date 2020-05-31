@@ -18,10 +18,11 @@ class Triple<L, M, R> {
         right = right;
 }
 
-String secondsToString(double seconds) {
-  if (seconds == null) {
+String durationToString(Duration duration) {
+  if (duration == null) {
     return null;
   } else {
+    double seconds = duration.inMilliseconds / 1000.0;
     int sec = (seconds % 60).round();
     int min = (seconds / 60).floor();
     if (min < 60) {

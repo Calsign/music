@@ -9,18 +9,27 @@ import 'util.dart';
 import 'data.dart';
 import 'swipeable.dart';
 import 'listEntry.dart';
-import 'lastfm.dart' as lastfm;
+import 'musicbrainz.dart' as musicbrainz;
 
-class AlbumView extends SliverFutureContent<AlbumInfo> {
-  AlbumView({Key key, @required String artist, @required String albumName})
-      : super(key: key, future: lastfm.fetchAlbumInfo(artist, albumName));
+class ReleaseGroupView
+    extends SliverFutureContent<Pair<ReleaseGroupInfo, ReleaseInfo>> {
+  ReleaseGroupView.musicbrainz({Key key, @required String mbid})
+      : super(
+            key: key,
+            future: musicbrainz.fetchReleaseGroupInfo(mbid).then(
+                (releaseGroup) => musicbrainz
+                    .fetchReleaseInfo(releaseGroup.selectBestRelease().mbid)
+                    .then((release) => Pair(releaseGroup, release))));
 
   @override
-  Widget builder(BuildContext context, AlbumInfo albumInfo) {
+  Widget builder(
+      BuildContext context, Pair<ReleaseGroupInfo, ReleaseInfo> releaseInfo) {
     var width = MediaQuery.of(context).size.width;
-    var padding = 16.0;
-    var albumArtSize = min(width * 2 / 5, 300.0);
+    var padding = 20.0;
+    var albumArtSize = min(width * 3 / 7, 300.0);
     var swipeableHeight = albumArtSize + padding * 2;
+
+    print('title: ${releaseInfo.left.title}');
 
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -34,8 +43,20 @@ class AlbumView extends SliverFutureContent<AlbumInfo> {
                 alignment: Alignment.center,
                 child: Row(
                   children: <Widget>[
-                    Image.network(albumInfo.albumArtUri.toString(),
-                        width: albumArtSize, height: albumArtSize),
+                    Image.network(
+                      releaseInfo.right.coverArtUri.toString(),
+                      errorBuilder: (context, obj, stackTrace) => Image.network(
+                        releaseInfo.left.coverArtUri.toString(),
+                        errorBuilder: (context, obj, stackTrace) => Icon(
+                            Icons.album,
+                            size: albumArtSize,
+                            color: Colors.white70),
+                        width: albumArtSize,
+                        height: albumArtSize,
+                      ),
+                      width: albumArtSize,
+                      height: albumArtSize,
+                    ),
                     SizedBox(width: padding),
                     Flexible(
                       child: Column(
@@ -43,18 +64,25 @@ class AlbumView extends SliverFutureContent<AlbumInfo> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Text(
-                            albumInfo.title,
-                            style: TextStyle(fontSize: 20.0),
+                            releaseInfo.left.title,
+                            style: const TextStyle(fontSize: 20.0),
                           ),
                           SizedBox(height: 6.0),
                           Text(
-                            albumInfo.artists.join(", "),
-                            style: TextStyle(fontSize: 16.0),
+                            releaseInfo.left.artists
+                                .map((artist) => artist.value)
+                                .join(", "),
+                            style: const TextStyle(fontSize: 16.0),
                           ),
                           SizedBox(height: 24.0),
                           Text(
-                            "${albumInfo.tracks.length} tracks \u{00b7} ${secondsToString(albumInfo.duration)}",
-                            style: TextStyle(fontSize: 12.0),
+                            "${releaseInfo.right.tracks.length} tracks \u{00b7} ${durationToString(releaseInfo.right.duration)}",
+                            style: const TextStyle(fontSize: 12.0),
+                          ),
+                          SizedBox(height: 6.0),
+                          Text(
+                            "${releaseInfo.left.releaseDate?.year ?? ""}",
+                            style: const TextStyle(fontSize: 12.0),
                           ),
                         ],
                       ),
@@ -71,11 +99,11 @@ class AlbumView extends SliverFutureContent<AlbumInfo> {
                 SwipeEvent.goToArtist: () => print("going to album artist"),
               },
             );
-          } else if (index > albumInfo.tracks.length) {
+          } else if (index > releaseInfo.right.tracks.length) {
             return null;
           } else {
-            ListEntryData entry =
-                ListEntryData.ofAlbumTrackInfo(albumInfo, albumInfo.tracks[index - 1]);
+            ListEntryData entry = ListEntryData.ofAlbumTrackInfo(
+                releaseInfo.right, releaseInfo.right.tracks[index - 1]);
             return ListEntry(
               entry,
               showTrackNumber: true,
@@ -86,8 +114,8 @@ class AlbumView extends SliverFutureContent<AlbumInfo> {
                 SwipeEvent.playNow: () => print("playing ${entry.title}"),
                 SwipeEvent.goToAlbum: () =>
                     print("going to album ${entry.album}"),
-                SwipeEvent.goToArtist: () =>
-                    print("going to artist ${entry.artists}"),
+                SwipeEvent.goToArtist: () => print(
+                    "going to artist ${entry.artists.map((artist) => artist.value).join(", ")}"),
               },
             );
           }

@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart';
 import 'package:intl/intl.dart';
 
 import 'dart:convert' as convert;
@@ -43,7 +44,7 @@ DateTime parseDate(String dateStr) {
   return format.parse(dateStr);
 }
 
-Future<AlbumInfo> fetchAlbumInfo(String artist, String album) {
+Future<ReleaseInfo> fetchReleaseInfo(String artist, String album) {
   return http
       .get(formUri("album.getinfo", {
     "artist": artist,
@@ -54,38 +55,58 @@ Future<AlbumInfo> fetchAlbumInfo(String artist, String album) {
       var data = convert.jsonDecode(response.body);
       if (data is Map<String, dynamic>) {
         Uri albumArtUri = extractAlbumArt(data["album"]["image"]);
-        int year;
 
-        List<AlbumTrackInfo> tracks = data["album"]["tracks"]["track"]
-            .map<AlbumTrackInfo>((track) => AlbumTrackInfo(
+        List<ReleaseTrackInfo> tracks = data["album"]["tracks"]["track"]
+            .map<ReleaseTrackInfo>((track) => ReleaseTrackInfo(
+                  mbid: null,
                   title: track["name"],
-                  artists: [track["artist"]["name"]],
+                  artists: <MbidOf<String>>[
+                    MbidOf.empty(track["artist"]["name"])
+                  ],
                   trackNumber: int.parse(track["@attr"]["rank"]),
-                  duration: double.parse(track["duration"]),
+                  duration: Duration(
+                      milliseconds:
+                          ((double.parse(track["duration"]) * 1000).round())),
                 ))
             .toList();
 
-        double duration =
-            tracks.fold(0.0, (acc, track) => (track.duration ?? 0.0) + acc);
+        Duration duration = tracks.fold(Duration.zero,
+            (acc, track) => (track.duration ?? Duration.zero) + acc);
 
         String description = data["album"]["wiki"] != null
             ? data["album"]["wiki"]["summary"]
             : null;
 
-        return AlbumInfo(
+        return ReleaseInfo(
+          mbid: data["album"]["mbid"],
           title: data["album"]["name"],
-          artists: [data["album"]["artist"]],
+          artists: <MbidOf<String>>[MbidOf.empty(data["album"]["artist"])],
           tracks: tracks,
           albumArtUri: albumArtUri,
           duration: duration,
           description: description,
-          year: year,
         );
       }
     }
 
     throw Exception("failed to fetch album info"); // TODO
   });
+}
+
+class AlbumSearchResult extends Mbid {
+  final String title;
+  final List<MbidOf<String>> artists;
+  final Uri albumArtUri;
+
+  const AlbumSearchResult(
+      {@required String mbid,
+        @required String title,
+        @required List<MbidOf<String>> artists,
+        Uri albumArtUri})
+      : title = title,
+        artists = artists,
+        albumArtUri = albumArtUri,
+        super(mbid, MbidType.release);
 }
 
 Future<List<AlbumSearchResult>> searchAlbum(String query) {
@@ -98,8 +119,9 @@ Future<List<AlbumSearchResult>> searchAlbum(String query) {
       var data = convert.jsonDecode(response.body);
       return data["results"]["albummatches"]["album"]
           .map<AlbumSearchResult>((album) => AlbumSearchResult(
+                mbid: album["mbid"],
                 title: album["name"],
-                artists: [album["artist"]],
+                artists: <MbidOf<String>>[MbidOf.empty(album["artist"])],
                 albumArtUri: extractAlbumArt(album["image"]),
               ))
           .toList();

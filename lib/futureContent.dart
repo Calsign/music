@@ -27,6 +27,10 @@ class _GenericFutureContentState<T> extends State<_GenericFutureContent<T>> {
         if (snapshot.hasData) {
           return widget.builder(context, snapshot.data);
         } else if (snapshot.hasError) {
+          print(snapshot.error);
+          if (snapshot.error is Error) {
+            print((snapshot.error as Error).stackTrace);
+          }
           child = Align(
             alignment: Alignment.center,
             child: Text(snapshot.error.toString()),
@@ -41,7 +45,7 @@ class _GenericFutureContentState<T> extends State<_GenericFutureContent<T>> {
         if (widget._sliver) {
           return SliverFillRemaining(child: child);
         } else {
-          return Expanded(child : child);
+          return Expanded(child: child);
         }
       },
     );

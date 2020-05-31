@@ -9,66 +9,38 @@ const double LIST_ENTRY_HEIGHT = 60.0;
 
 enum ListEntryType { track, album, playlist }
 
-class ListEntryData {
+class ListEntryData extends Mbid {
   final ListEntryType type;
   final String title;
-  final String album;
+  final MbidOf<String> album;
   final int trackNumber;
-  final List<String> artists;
-  final Uri albumArtUri;
+  final List<MbidOf<String>> artists;
+  final Uri coverArtUri;
   final int year;
-  final double duration;
+  final Duration duration;
 
-  ListEntryData.ofAlbumTrackInfo(AlbumInfo album, AlbumTrackInfo track)
+  ListEntryData.ofAlbumTrackInfo(ReleaseInfo album, ReleaseTrackInfo track)
       : type = ListEntryType.track,
         title = track.title,
-        album = album.title,
+        album = MbidOf.copy(album, album.title),
         trackNumber = track.trackNumber,
         artists = track.artists,
-        albumArtUri = album.albumArtUri,
-        year = album.year,
-        duration = track.duration;
+        coverArtUri = album.coverArtUri,
+        year = album.releaseDate != null ? album.releaseDate.year : null,
+        duration = track.duration,
+        super.copy(track);
 
-  ListEntryData.ofAlbumSearchResult(AlbumSearchResult album)
-      : type = ListEntryType.track,
-        title = album.title,
-        album = null,
-        trackNumber = null,
-        artists = album.artists,
-        albumArtUri = album.albumArtUri,
-        year = null,
-        duration = null;
-
-  const ListEntryData.track(
-      {@required String title,
-      @required List<String> artists,
-      @required String album,
-      int trackNumber,
-      Uri albumArtUri,
-      int year,
-      double duration})
-      : type = ListEntryType.track,
-        title = title,
-        artists = artists,
-        album = album,
-        trackNumber = trackNumber,
-        albumArtUri = albumArtUri,
-        year = year,
-        duration = duration;
-
-  const ListEntryData.album(
-      {@required String title,
-      @required List<String> artists,
-      Uri albumArtUri,
-      int year})
+  ListEntryData.ofReleaseGroupSearchResult(
+      ReleaseGroupSearchResult releaseGroup)
       : type = ListEntryType.album,
-        title = title,
-        artists = artists,
+        title = releaseGroup.title,
         album = null,
         trackNumber = null,
-        albumArtUri = albumArtUri,
-        year = year,
-        duration = null;
+        artists = releaseGroup.artists,
+        coverArtUri = releaseGroup.coverArtUri,
+        year = null,
+        duration = null,
+        super.copy(releaseGroup);
 }
 
 class ListEntry extends StatelessWidget {
@@ -111,8 +83,9 @@ class ListEntry extends StatelessWidget {
     var secondData = _data.type == ListEntryType.track
         ? (_data.trackNumber == null
             ? _data.album
-            : secondsToString(_data.duration))
+            : durationToString(_data.duration))
         : _data.year;
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
@@ -132,9 +105,9 @@ class ListEntry extends StatelessWidget {
                   ),
                 ),
               )
-            : (_data.albumArtUri != null)
+            : (_data.coverArtUri != null)
                 ? Image.network(
-                    _data.albumArtUri.toString(),
+                    _data.coverArtUri.toString(),
                     errorBuilder: (context, obj, stackTrace) => const Icon(
                         Icons.album,
                         size: 42.0,
@@ -161,8 +134,8 @@ class ListEntry extends StatelessWidget {
               SizedBox(height: 4.0),
               Text(
                 secondData == null
-                    ? _data.artists.join(",")
-                    : "${_data.artists.join(",")}  \u{00b7}  $secondData",
+                    ? _data.artists.map((artist) => artist.value).join(",")
+                    : "${_data.artists.map((artist) => artist.value).join(",")}  \u{00b7}  $secondData",
                 style: const TextStyle(
                   fontSize: 12.0,
                   color: Colors.white70,
