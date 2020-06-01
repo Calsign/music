@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'package:cached_network_image/cached_network_image.dart';
+
 import 'util.dart';
 import 'data.dart';
+import 'cacheManager.dart';
 import 'swipeable.dart';
 
 const double LIST_ENTRY_HEIGHT = 60.0;
@@ -106,12 +109,14 @@ class ListEntry extends StatelessWidget {
                 ),
               )
             : (_data.coverArtUri != null)
-                ? Image.network(
-                    _data.coverArtUri.toString(),
-                    errorBuilder: (context, obj, stackTrace) => const Icon(
+                ? CachedNetworkImage(
+                    imageUrl: _data.coverArtUri.toString(),
+                    cacheManager: CustomCacheManager(),
+                    errorWidget: (context, url, stackTrace) => const Icon(
                         Icons.album,
                         size: 42.0,
                         color: Colors.white70),
+                    fadeInDuration: Duration(milliseconds: 200),
                     width: 42.0,
                     height: 42.0,
                   ) //Icon(widget._data.albumArt, size: 42.0, color: Colors.white70)

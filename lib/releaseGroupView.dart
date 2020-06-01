@@ -3,10 +3,12 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-import 'futureContent.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'util.dart';
 import 'data.dart';
+import 'cacheManager.dart';
+import 'futureContent.dart';
 import 'swipeable.dart';
 import 'listEntry.dart';
 import 'musicbrainz.dart' as musicbrainz;
@@ -29,8 +31,6 @@ class ReleaseGroupView
     var albumArtSize = min(width * 3 / 7, 300.0);
     var swipeableHeight = albumArtSize + padding * 2;
 
-    print('title: ${releaseInfo.left.title}');
-
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
@@ -43,17 +43,22 @@ class ReleaseGroupView
                 alignment: Alignment.center,
                 child: Row(
                   children: <Widget>[
-                    Image.network(
-                      releaseInfo.right.coverArtUri.toString(),
-                      errorBuilder: (context, obj, stackTrace) => Image.network(
-                        releaseInfo.left.coverArtUri.toString(),
-                        errorBuilder: (context, obj, stackTrace) => Icon(
+                    CachedNetworkImage(
+                      imageUrl: releaseInfo.right.coverArtUri.toString(),
+                      cacheManager: CustomCacheManager(),
+                      errorWidget: (context, url, stackTrace) =>
+                          CachedNetworkImage(
+                        imageUrl: releaseInfo.left.coverArtUri.toString(),
+                        cacheManager: CustomCacheManager(),
+                        errorWidget: (context, url, stackTrace) => Icon(
                             Icons.album,
                             size: albumArtSize,
                             color: Colors.white70),
+                            fadeInDuration: Duration(milliseconds: 200),
                         width: albumArtSize,
                         height: albumArtSize,
                       ),
+                      fadeInDuration: Duration(milliseconds: 200),
                       width: albumArtSize,
                       height: albumArtSize,
                     ),

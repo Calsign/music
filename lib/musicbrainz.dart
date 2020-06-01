@@ -1,7 +1,10 @@
 import 'package:meta/meta.dart';
 
+import 'dart:io' as io;
 import 'dart:convert' as convert;
 import 'package:http/http.dart' as http;
+
+import 'package:music/cacheManager.dart';
 
 import 'data.dart';
 
@@ -146,7 +149,7 @@ DateTime extractDate(String dateStr) {
 Future<http.Response> handleRateLimiting(Uri uri, {times = 1}) {
   return Future.any(<Future<dynamic>>[
     http.get(uri),
-    Future.delayed(Duration(seconds: 5), null)
+    Future.delayed(Duration(seconds: 5), null),
   ]).then((response) {
     if (response == null) {
       // Timeout
@@ -162,53 +165,58 @@ Future<http.Response> handleRateLimiting(Uri uri, {times = 1}) {
   });
 }
 
+Future<io.File> handleCache(Uri uri, {times = 1}) {
+  return CustomCacheManager().getSingleFile(uri.toString());
+}
+
+Future<String> stringOfByteStream(Stream<List<int>> stream) {
+  return convert.Utf8Decoder().bind(stream).join("");
+}
+
 Future<ReleaseInfo> fetchReleaseInfo(String mbid) {
   Uri uri = formLookupUri(
       entity: _Entity.release,
       mbid: mbid,
       incs: <_Inc>[_Inc.artists, _Inc.recordings]);
 
-  return handleRateLimiting(uri).then((response) {
-    switch (response.statusCode) {
-      case 200:
-        var data = convert.jsonDecode(response.body);
-        if (data is Map<String, dynamic>) {
-          String mbid = data["id"];
-          List<MbidOf<String>> artists = extractArtists(data["artist-credit"]);
+  return handleCache(uri).then((file) {
+    var data =
+        convert.jsonDecode(file.readAsStringSync(encoding: convert.utf8));
+    if (data is Map<String, dynamic>) {
+      String mbid = data["id"];
+      List<MbidOf<String>> artists = extractArtists(data["artist-credit"]);
 
-          List<ReleaseTrackInfo> tracks = data["media"]
-              .map<List<ReleaseTrackInfo>>(
-                  (media) => (media["tracks"] as List<dynamic>)
-                      .map<ReleaseTrackInfo>((track) => ReleaseTrackInfo(
-                            mbid: track["recording"]["id"],
-                            title: track["title"],
-                            artists: artists,
-                            duration: track["length"] != null
-                                ? Duration(milliseconds: track["length"])
-                                : null,
-                            trackNumber: track["position"],
-                          ))
-                      .toList())
-              .expand<ReleaseTrackInfo>((id) => id as List<ReleaseTrackInfo>)
-              .toList();
+      List<ReleaseTrackInfo> tracks = data["media"]
+          .map<List<ReleaseTrackInfo>>(
+              (media) => (media["tracks"] as List<dynamic>)
+                  .map<ReleaseTrackInfo>((track) => ReleaseTrackInfo(
+                        mbid: track["recording"]["id"],
+                        title: track["title"],
+                        artists: artists,
+                        duration: track["length"] != null
+                            ? Duration(milliseconds: track["length"])
+                            : null,
+                        trackNumber: track["position"],
+                      ))
+                  .toList())
+          .expand<ReleaseTrackInfo>((id) => id as List<ReleaseTrackInfo>)
+          .toList();
 
-          Duration duration = tracks.fold(Duration.zero,
-              (acc, track) => (track.duration ?? Duration.zero) + acc);
+      Duration duration = tracks.fold(Duration.zero,
+          (acc, track) => (track.duration ?? Duration.zero) + acc);
 
-          return ReleaseInfo(
-            mbid: mbid,
-            title: data["title"],
-            artists: artists,
-            releaseDate: extractDate(data["date"]),
-            albumArtUri: formCoverArtUri(entity: _Entity.release, mbid: mbid),
-            tracks: tracks,
-            duration: duration,
-          );
-        }
+      return ReleaseInfo(
+        mbid: mbid,
+        title: data["title"],
+        artists: artists,
+        releaseDate: extractDate(data["date"]),
+        albumArtUri: formCoverArtUri(entity: _Entity.release, mbid: mbid),
+        tracks: tracks,
+        duration: duration,
+      );
     }
 
-    throw Exception(
-        "failed to fetch release info; status code: ${response.statusCode}, body: ${response.body}, uri: $uri");
+    throw Exception("failed to fetch release info");
   });
 }
 
@@ -233,37 +241,32 @@ Future<ReleaseGroupInfo> fetchReleaseGroupInfo(String mbid) {
       mbid: mbid,
       incs: <_Inc>[_Inc.artists, _Inc.releases]);
 
-  return handleRateLimiting(uri).then((response) {
-    switch (response.statusCode) {
-      case 200:
-        var data = convert.jsonDecode(response.body);
-        if (data is Map<String, dynamic>) {
-          String mbid = data["id"];
-          return ReleaseGroupInfo(
-            mbid: mbid,
-            title: data["title"],
-            artists: extractArtists(data["artist-credit"]),
-            type: extractReleaseType(data["primary-type"]),
-            releaseDate: extractDate(data["first-release-date"]),
-            releases: data["releases"]
-                .map<ReleaseGroupReleaseInfo>(
-                    (release) => ReleaseGroupReleaseInfo(
-                          mbid: release["id"],
-                          title: release["title"],
-                          releaseDate: extractDate(release["date"]),
-                          country: release["country"],
-                          packaging: release["packaging"],
-                          status: release["status"],
-                        ))
-                .toList(),
-            coverArtUri:
-                formCoverArtUri(entity: _Entity.releaseGroup, mbid: mbid),
-          );
-        }
+  return handleCache(uri).then((file) {
+    var data =
+        convert.jsonDecode(file.readAsStringSync(encoding: convert.utf8));
+    if (data is Map<String, dynamic>) {
+      String mbid = data["id"];
+      return ReleaseGroupInfo(
+        mbid: mbid,
+        title: data["title"],
+        artists: extractArtists(data["artist-credit"]),
+        type: extractReleaseType(data["primary-type"]),
+        releaseDate: extractDate(data["first-release-date"]),
+        releases: data["releases"]
+            .map<ReleaseGroupReleaseInfo>((release) => ReleaseGroupReleaseInfo(
+                  mbid: release["id"],
+                  title: release["title"],
+                  releaseDate: extractDate(release["date"]),
+                  country: release["country"],
+                  packaging: release["packaging"],
+                  status: release["status"],
+                ))
+            .toList(),
+        coverArtUri: formCoverArtUri(entity: _Entity.releaseGroup, mbid: mbid),
+      );
     }
 
-    throw Exception(
-        "failed to fetch release group info; status code: ${response.statusCode}, body: ${response.body}, uri: $uri");
+    throw Exception("failed to fetch release group info");
   });
 }
 
@@ -287,8 +290,10 @@ Future<List<ReleaseGroupSearchResult>> searchReleaseGroup(String query) {
               title: releaseGroup["title"],
               artists: extractArtists(releaseGroup["artist-credit"]),
               releaseMbids: releaseGroup["releases"]
-                  ?.map<Mbid>((release) => Mbid(release["id"], MbidType.release))
-                  ?.toList() ?? List(),
+                      ?.map<Mbid>(
+                          (release) => Mbid(release["id"], MbidType.release))
+                      ?.toList() ??
+                  List(),
               coverArtUri:
                   formCoverArtUri(entity: _Entity.releaseGroup, mbid: mbid),
               primaryType: extractReleaseType(releaseGroup["primary-type"]),
