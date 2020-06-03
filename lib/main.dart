@@ -6,8 +6,10 @@ import 'package:provider/provider.dart';
 import 'support.dart';
 import 'data.dart';
 import 'model.dart';
+import 'listEntry.dart';
+import 'mainAppBar.dart';
 import 'releaseGroupView.dart';
-import 'searchScreen.dart';
+import 'queueScreen.dart';
 
 void main() => runApp(MusicApp());
 
@@ -18,6 +20,7 @@ class MusicApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (context) => DownloadedOnlyModel()),
         ChangeNotifierProvider(create: (context) => MainPageIndexModel()),
+        ChangeNotifierProvider(create: (context) => QueueModel()),
       ],
       child: MaterialApp(
         title: 'Music',
@@ -26,6 +29,7 @@ class MusicApp extends StatelessWidget {
           primaryColor: Colors.blue[900],
           accentColor: Colors.blue[700],
           backgroundColor: Colors.black,
+          cardColor: Color(0xFF222222),
         ),
         home: MainPage(),
       ),
@@ -33,7 +37,7 @@ class MusicApp extends StatelessWidget {
   }
 }
 
-const double NOW_PLAYING_HEIGHT = 80.0;
+const double NOW_PLAYING_HEIGHT = 84.0;
 
 class MainPage extends StatelessWidget {
   final Mbid _content;
@@ -52,6 +56,7 @@ class MainPage extends StatelessWidget {
         child: Consumer<MainPageIndexModel>(
           builder: (context, model, child) => BottomNavigationBar(
             type: BottomNavigationBarType.fixed,
+            backgroundColor: Theme.of(context).cardColor,
             onTap: (index) {
               model.mainPageIndex = index;
               Navigator.popUntil(
@@ -130,7 +135,7 @@ class MainPage extends StatelessWidget {
           child: CustomScrollView(
             physics: const ClampingScrollPhysics(),
             slivers: <Widget>[
-              _appBar(context, title),
+              sliverAppBar(context, title: title),
               content,
               SliverToBoxAdapter(
                 child: SizedBox(
@@ -149,48 +154,44 @@ class MainPage extends StatelessWidget {
     );
   }
 
-  SliverAppBar _appBar(BuildContext context, Widget title) {
-    return SliverAppBar(
-      elevation: 10.0,
-      title: title,
-      primary: true,
-      floating: true,
-      snap: true,
-      backgroundColor: Colors.transparent,
-      actions: <Widget>[
-        Consumer<DownloadedOnlyModel>(
-          builder: (context, model, child) => IconButton(
-            icon: Icon(Icons.file_download,
-                color: model.downloadedOnly
-                    ? Theme.of(context).accentColor
-                    : IconTheme.of(context).color),
-            tooltip: "Offline Mode",
-            onPressed: () => model.toggle(),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.cast),
-          tooltip: "Playback Devices",
-          onPressed: () => null,
-        ),
-        IconButton(
-          icon: const Icon(Icons.search),
-          tooltip: "Search",
-          onPressed: () => Navigator.of(context).push(SearchOverlay()),
-        )
-      ],
-    );
-  }
-
   Widget _nowPlaying(BuildContext context) {
-    return Container(
-        width: MediaQuery.of(context).size.width,
-        height: NOW_PLAYING_HEIGHT,
-        padding: EdgeInsets.all(16.0),
-        child: Material(
-          elevation: 24.0,
-          child: Placeholder(),
-        ));
+    return Consumer<QueueModel>(
+        builder: (context, model, child) => model.hasQueue
+            ? Container(
+                width: MediaQuery.of(context).size.width,
+                height: NOW_PLAYING_HEIGHT,
+                padding: EdgeInsets.all(12.0),
+                child: Material(
+                  elevation: 24.0,
+                  color: Theme.of(context).cardColor,
+                  child: InkWell(
+                    child: Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                      child: ListEntryContents(
+                        ListEntryData.ofQueuedTrackInfo(model.currentTrack),
+                        showNowPlaying: false,
+                        right: Row(
+                          children: <Widget>[
+                            IconButton(
+                              icon: Icon(model.isPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow),
+                              onPressed: () => model.togglePlaying(),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.skip_next),
+                              onPressed: () => null,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    onTap: () => Navigator.of(context).push(QueueOverlay()),
+                  ),
+                ),
+              )
+            : SizedBox(width: 0.0, height: 0.0));
   }
 }
 

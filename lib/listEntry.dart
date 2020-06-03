@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
 
 import 'util.dart';
 import 'data.dart';
-import 'cacheManager.dart';
+import 'model.dart';
 import 'swipeable.dart';
+import 'coverArt.dart';
 
 const double LIST_ENTRY_HEIGHT = 60.0;
 
@@ -18,7 +19,7 @@ class ListEntryData extends Mbid {
   final MbidOf<String> album;
   final int trackNumber;
   final List<MbidOf<String>> artists;
-  final Uri coverArtUri;
+  final CoverArtData coverArtData;
   final int year;
   final Duration duration;
 
@@ -28,7 +29,7 @@ class ListEntryData extends Mbid {
         album = MbidOf.copy(album, album.title),
         trackNumber = track.trackNumber,
         artists = track.artists,
-        coverArtUri = album.coverArtUri,
+        coverArtData = album.coverArtData,
         year = album.releaseDate != null ? album.releaseDate.year : null,
         duration = track.duration,
         super.copy(track);
@@ -40,87 +41,147 @@ class ListEntryData extends Mbid {
         album = null,
         trackNumber = null,
         artists = releaseGroup.artists,
-        coverArtUri = releaseGroup.coverArtUri,
+        coverArtData = releaseGroup.coverArtData,
         year = null,
         duration = null,
         super.copy(releaseGroup);
+
+  ListEntryData.ofQueuedTrackInfo(QueuedTrackInfo trackInfo)
+      : type = ListEntryType.track,
+        title = trackInfo.title,
+        album = trackInfo.releaseGroup,
+        trackNumber = null,
+        artists = trackInfo.artists,
+        coverArtData = trackInfo.coverArtData,
+        year = trackInfo.releaseDate?.year,
+        duration = trackInfo.duration,
+        super.copy(trackInfo);
 }
 
 class ListEntry extends StatelessWidget {
   final ListEntryData _data;
   final Map<SwipeEvent, void Function()> _callbacks;
   final Color _foregroundColor, _backgroundColor;
-  final bool _showTrackNumber;
+  final double _opacity;
+  final bool _showTrackNumber, _showNowPlaying;
 
   ListEntry(ListEntryData data,
       {Map<SwipeEvent, void Function()> callbacks,
       Color foregroundColor,
       Color backgroundColor,
-      bool showTrackNumber = false})
+      double opacity = 1.0,
+      bool showTrackNumber = false,
+      bool showNowPlaying = true})
       : _data = data,
         _callbacks = callbacks ?? Map(),
         _foregroundColor = foregroundColor,
         _backgroundColor = backgroundColor,
-        _showTrackNumber = showTrackNumber;
+        _opacity = opacity,
+        _showTrackNumber = showTrackNumber,
+        _showNowPlaying = showNowPlaying;
 
   @override
   Widget build(BuildContext context) {
     return Swipeable(
       foregroundColor: _foregroundColor,
       backgroundColor: _backgroundColor,
+      opacity: _opacity,
       buildContent: (context) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-        child: _itemContents(context),
+        child: ListEntryContents(
+          _data,
+          showTrackNumber: _showTrackNumber,
+          showNowPlaying: _showNowPlaying,
+        ),
       ),
       buildPopupContent: (context) => Padding(
         padding: EdgeInsets.all(16.0),
-        child: _itemContents(context, forceAlbumArt: true),
+        child: ListEntryContents(_data),
       ),
       width: () => MediaQuery.of(context).size.width,
       height: () => LIST_ENTRY_HEIGHT,
       callbacks: _callbacks,
     );
   }
+}
 
-  Widget _itemContents(context, {bool forceAlbumArt = false}) {
+class ListEntryContents extends StatelessWidget {
+  final ListEntryData _data;
+  final bool _showTrackNumber, _showNowPlaying;
+  final Widget _right;
+
+  ListEntryContents(ListEntryData data,
+      {bool showTrackNumber = false, bool showNowPlaying = true, Widget right})
+      : _data = data,
+        _showTrackNumber = showTrackNumber,
+        _showNowPlaying = showNowPlaying,
+        _right = right;
+
+  Widget _icon(BuildContext context) {
+    if (_data.type == ListEntryType.track &&
+        _data.trackNumber != null &&
+        _showTrackNumber) {
+      return Container(
+        width: 42.0,
+        height: 42.0,
+        alignment: Alignment(0.0, 0.0),
+        child: Text(
+          "${_data.trackNumber}",
+          style: TextStyle(
+            fontSize: 15.0,
+            color: Color(0xFFBBBBBB),
+          ),
+        ),
+      );
+    } else if (_data.coverArtData != null) {
+      return coverArt(mainArt: _data.coverArtData, size: 42.0);
+    } else {
+      return const Icon(Icons.album, size: 42.0, color: Color(0xFFBBBBBB));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     var secondData = _data.type == ListEntryType.track
         ? (_data.trackNumber == null
-            ? _data.album
+            ? _data.album.value
             : durationToString(_data.duration))
         : _data.year;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        _data.type == ListEntryType.track &&
-                _data.trackNumber != null &&
-                _showTrackNumber &&
-                !forceAlbumArt
-            ? Container(
-                width: 42.0,
-                height: 42.0,
-                alignment: Alignment(0.0, 0.0),
-                child: Text(
-                  "${_data.trackNumber}",
-                  style: TextStyle(
-                    fontSize: 15.0,
-                    color: Colors.white70,
-                  ),
-                ),
-              )
-            : (_data.coverArtUri != null)
-                ? CachedNetworkImage(
-                    imageUrl: _data.coverArtUri.toString(),
-                    cacheManager: CustomCacheManager(),
-                    errorWidget: (context, url, stackTrace) => const Icon(
-                        Icons.album,
-                        size: 42.0,
-                        color: Colors.white70),
-                    fadeInDuration: Duration(milliseconds: 200),
-                    width: 42.0,
-                    height: 42.0,
-                  ) //Icon(widget._data.albumArt, size: 42.0, color: Colors.white70)
-                : const Icon(Icons.album, size: 42.0, color: Colors.white70),
+        Consumer<QueueModel>(
+          builder: (context, model, child) {
+            if (_showNowPlaying &&
+                model.currentTrack != null &&
+                model.isPlaying) {
+              var testMbid;
+              switch (_data.mbidType) {
+                case MbidType.recording:
+                  testMbid = model.currentTrack.mbid;
+                  break;
+                case MbidType.release:
+                  // TODO nullable because this part is currently unimplemented on the QueuedTrackInfo side
+                  testMbid = model.currentTrack.release?.mbid;
+                  break;
+                case MbidType.releaseGroup:
+                  testMbid = model.currentTrack.releaseGroup.mbid;
+                  break;
+                case MbidType.artist:
+                  testMbid = model.currentTrack.artists.first.mbid;
+                  break;
+              }
+
+              return testMbid == _data.mbid
+                  ? const Icon(Icons.equalizer, size: 42.0)
+                  : child;
+            } else {
+              return child;
+            }
+          },
+          child: _icon(context),
+        ),
         SizedBox(width: 16.0),
         Expanded(
           child: Column(
@@ -143,7 +204,7 @@ class ListEntry extends StatelessWidget {
                     : "${_data.artists.map((artist) => artist.value).join(",")}  \u{00b7}  $secondData",
                 style: const TextStyle(
                   fontSize: 12.0,
-                  color: Colors.white70,
+                  color: Color(0xFFBBBBBB),
                 ),
                 maxLines: 1,
                 softWrap: false,
@@ -152,6 +213,7 @@ class ListEntry extends StatelessWidget {
             ],
           ),
         ),
+        _right != null ? _right : SizedBox(width: 0.0),
       ],
     );
   }

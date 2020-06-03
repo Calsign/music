@@ -1,6 +1,327 @@
 package com.calsignlabs.music
 
+import android.os.AsyncTask
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+import org.schabi.newpipe.DownloaderImpl
+import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.search.SearchExtractor
 
-class MainActivity: FlutterActivity() {
+import org.schabi.newpipe.extractor.services.youtube.YoutubeService
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeStreamLinkHandlerFactory
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.util.*
+
+import com.calsignlabs.music.MediaPlayerWrapper.State.*
+
+class MainActivity : FlutterActivity() {
+    private var status: MethodChannel? = null
+
+    private val youtubeService = YoutubeService(0)
+    private val youtubeSearchQueryHandler = YoutubeSearchQueryHandlerFactory.getInstance()
+    private val youtubeStreamLinkHandler = YoutubeStreamLinkHandlerFactory.getInstance()
+
+    private val mediaPool = LinkedHashMap<String, MediaPlayerWrapper>()
+    private var queue: ArrayList<String> = ArrayList()
+
+    private var statusCounter = 0
+
+    init {
+        NewPipe.init(DownloaderImpl.init(null))
+    }
+
+    private fun getCurrentMediaPlayer(): MediaPlayerWrapper? {
+        return if (mediaPool.isNotEmpty() && queue.isNotEmpty()) mediaPool[queue[0]] else null
+    }
+
+    private fun invokeStatus(method: String) {
+        try {
+            status?.invokeMethod(method, ++statusCounter)
+        } catch (e: Exception) {
+            println("Failed to send status update $method, exception: ${e.message}")
+        }
+    }
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.calsignlabs.music/playback")
+                .setMethodCallHandler { call, result ->
+                    when (call.method) {
+                        "getYoutubeStreamUri" -> {
+                            val uri: String? = call.argument("uri")
+                            if (uri != null) {
+                                getYoutubeStreamUri(uri, result)
+                            } else {
+                                throw Exception("No URI specified to loadYoutubeUri")
+                            }
+                        }
+                        "searchYoutube" -> {
+                            val query: String? = call.argument("query")
+                            if (query != null) {
+                                searchYoutube(query, result)
+                            } else {
+                                throw Exception("No query specified to searchYoutube")
+                            }
+                        }
+                        "play" -> play(result)
+                        "pause" -> pause(result)
+                        "setQueue" -> {
+                            val newQueue: List<String>? = call.argument("queue")
+                            val sweep: Boolean? = call.argument("sweep")
+                            val resetCurrent: Boolean? = call.argument("resetCurrent")
+                            if (newQueue != null) {
+                                setQueue(newQueue, sweep ?: true, resetCurrent ?: false, result)
+                            } else {
+                                throw Exception("No queue specified to setQueue")
+                            }
+                        }
+                    }
+                }
+        status = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.calsignlabs.music/status")
+    }
+
+    override fun onDestroy() {
+        for (mediaPlayer in mediaPool.values) {
+            mediaPlayer.release()
+        }
+        super.onDestroy()
+    }
+
+    private fun play(result: MethodChannel.Result) {
+        var played = false
+        synchronized(this) {
+            val currentMediaPlayer = getCurrentMediaPlayer()
+            if (currentMediaPlayer != null && currentMediaPlayer.isState(PAUSED, PREPARED)) {
+                try {
+                    currentMediaPlayer.start()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                played = true
+            }
+        }
+        if (played) {
+            invokeStatus("onPlay")
+            result.success(null)
+        } else {
+            result.error("Failed", "Already playing: ${getCurrentMediaPlayer()?.state()?.name}", null)
+        }
+    }
+
+    private fun pause(result: MethodChannel.Result) {
+        var paused = false
+        synchronized(this) {
+            val currentMediaPlayer = getCurrentMediaPlayer()
+            if (currentMediaPlayer != null && currentMediaPlayer.isState(STARTED, PREPARED)) {
+                try {
+                    currentMediaPlayer.pause()
+                    paused = true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+        if (paused) {
+            invokeStatus("onPause")
+            result.success(null)
+        } else {
+            result.error("Failed", "Already paused: ${getCurrentMediaPlayer()?.state()?.name}", null)
+        }
+    }
+
+    private fun searchYoutube(query: String, result: MethodChannel.Result) {
+        AsyncTask.execute {
+            val results = performSearch(query)
+            runOnUiThread { result.success(results) }
+        }
+    }
+
+    private fun performSearch(query: String): List<Map<String, Any>> {
+        val searchExtractor = youtubeService.getSearchExtractor(youtubeSearchQueryHandler.fromQuery(query))
+        searchExtractor.fetchPage()
+
+        try {
+            return searchExtractor.initialPage.items.map { item ->
+                if (item is StreamInfoItem) {
+                    hashMapOf(
+                            "title" to item.name,
+                            "uri" to item.url,
+                            "duration" to item.duration,
+                            "views" to item.viewCount,
+                            "uploader" to item.uploaderName
+                    )
+                } else {
+                    hashMapOf(
+                            "title" to item.name,
+                            "uri" to item.url,
+                            "duration" to -1,
+                            "views" to -1,
+                            "uploader" to ""
+                    )
+                }
+            }.toList()
+        } catch (e: SearchExtractor.NothingFoundException) {
+            return Collections.emptyList()
+        }
+    }
+
+    private fun getYoutubeStreamUri(uri: String, result: MethodChannel.Result) {
+        AsyncTask.execute {
+            try {
+                val streamUri = performGetYoutubeStreamUri(uri)
+                runOnUiThread {
+                    if (streamUri != null) {
+                        result.success(streamUri)
+                    } else {
+                        result.error("Failed", "No audio streams found", null)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                runOnUiThread { result.error("Failed", e.message, null) }
+            }
+        }
+    }
+
+    private fun performGetYoutubeStreamUri(uri: String): String? {
+        val streamExtractor = youtubeService.getStreamExtractor(youtubeStreamLinkHandler.fromUrl(uri))
+        streamExtractor.fetchPage()
+
+        return if (streamExtractor.audioStreams.isNotEmpty()) {
+            streamExtractor.audioStreams.sortBy { stream -> -stream.averageBitrate }
+            streamExtractor.audioStreams[0].url
+        } else {
+            null
+        }
+    }
+
+    private fun setQueue(newQueue: Iterable<String>, sweep: Boolean, resetCurrent: Boolean, result: MethodChannel.Result) {
+        try {
+            performSetQueue(newQueue, sweep, resetCurrent)
+            result.success(null)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            result.error("Failed", e.message, null)
+        }
+    }
+
+    private fun performSetQueue(newQueueIterable: Iterable<String>, sweep: Boolean, resetCurrent: Boolean) {
+        val newQueue = newQueueIterable.toList()
+        val firstNewTrack = if (newQueue.isNotEmpty()) newQueue[0] else null
+
+        synchronized(this) {
+            if (queue.isNotEmpty() && newQueue.isNotEmpty()) {
+                if (queue.first() == firstNewTrack) {
+                    if (resetCurrent && getCurrentMediaPlayer()?.isState(STARTED) == true) {
+                        getCurrentMediaPlayer()?.seekTo(0)
+                    }
+                } else {
+                    if (getCurrentMediaPlayer()?.isState(STARTED, PAUSED) == true) {
+                        if (getCurrentMediaPlayer()?.isState(STARTED) == true) {
+                            getCurrentMediaPlayer()?.pause()
+                            invokeStatus("onPause")
+                        }
+                        getCurrentMediaPlayer()?.seekTo(0)
+                    }
+                }
+            }
+
+            val oldSet = LinkedHashSet(queue)
+            val newSet = LinkedHashSet(newQueue)
+
+            if (sweep) {
+                for (removedYoutubeUri in oldSet - newSet) {
+                    val player = mediaPool[removedYoutubeUri]
+                    player?.setOnComplete { false }
+                    player?.pause()
+                    AsyncTask.execute {
+                        player?.stop()
+                        player?.release()
+                    }
+                    mediaPool.remove(removedYoutubeUri)
+                }
+            }
+
+            for (addedYoutubeUri in newSet - oldSet) {
+                val player = MediaPlayerWrapper()
+                AsyncTask.execute {
+                    val rawStreamUri = performGetYoutubeStreamUri(addedYoutubeUri)
+                    player.setDataSource(rawStreamUri)
+                    player.prepare()
+                }
+                mediaPool[addedYoutubeUri] = player
+            }
+
+            newQueue.foldRight<String, String?>(null) { youtubeUri, nextYoutubeUri ->
+                val player = mediaPool[youtubeUri]
+                val nextPlayer = mediaPool[nextYoutubeUri]
+
+                player!!.setOnComplete {
+                    var valid = true
+                    var paused = false
+                    var nextTrack = false
+                    synchronized(this) {
+                        if (queue.isNotEmpty() && youtubeUri != queue.first()) {
+                            valid = false
+                        } else {
+                            if (nextYoutubeUri == null) {
+                                paused = true
+                            } else {
+                                nextPlayer!!.start()
+                                queue.removeAt(0)
+                                nextTrack = true
+                            }
+                        }
+                    }
+                    if (paused) {
+                        invokeStatus("onPause")
+                    }
+                    if (nextTrack) {
+                        invokeStatus("onNextTrack")
+                    }
+                    valid
+                }
+                youtubeUri
+            }
+
+            if (newQueue.isEmpty()) {
+                invokeStatus("onPause")
+            }
+
+            for (entry in mediaPool.entries) {
+                if (entry.key == firstNewTrack) {
+                    entry.value.setOnPrepare {
+                        entry.value.start()
+                        invokeStatus("onPlay")
+                    }
+                    if (entry.value.isState(PREPARED, PAUSED, COMPLETED)) {
+                        try {
+                            entry.value.start()
+                            invokeStatus("onPlay")
+                        } catch (e: Exception) {
+                            // don't think this actually happens
+                            e.printStackTrace()
+                        }
+                    }
+                } else {
+                    // if we don't do this we might get duplicated playback when this MediaPlayer
+                    // is re-used in the future and finishes preparing again
+                    entry.value.setOnPrepare { }
+                    try {
+                        // this is really dumb but sometimes we have issues
+                        // so just be safe and make sure it's paused
+                        entry.value.pause()
+                        entry.value.seekTo(0)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+
+            queue.clear()
+            queue.addAll(newQueue)
+        }
+    }
 }

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:music/cacheManager.dart';
 
+import 'util.dart';
 import 'data.dart';
 
 enum _Entity { artist, recording, release, releaseGroup }
@@ -87,7 +88,7 @@ extension CoverArtSizeToInt on CoverArtSize {
   }
 }
 
-Uri formCoverArtUri<T>(
+Uri formCoverArtUri(
     {@required _Entity entity,
     @required String mbid,
     CoverArtSize size = CoverArtSize.small}) {
@@ -101,6 +102,15 @@ Uri formCoverArtUri<T>(
 
   return Uri.https(
       "coverartarchive.org", "${entity.toStr()}/$mbid/front-${size.toInt()}");
+}
+
+CoverArtData buildCoverArtData(
+    {@required _Entity entity, @required String mbid}) {
+  return CoverArtData(CoverArtSize.values
+      .map<Pair<Uri, double>>((size) => Pair(
+          formCoverArtUri(entity: entity, mbid: mbid, size: size),
+          size.toInt().toDouble()))
+      .toList());
 }
 
 Uri formLookupUri(
@@ -210,7 +220,7 @@ Future<ReleaseInfo> fetchReleaseInfo(String mbid) {
         title: data["title"],
         artists: artists,
         releaseDate: extractDate(data["date"]),
-        albumArtUri: formCoverArtUri(entity: _Entity.release, mbid: mbid),
+        coverArtData: buildCoverArtData(entity: _Entity.release, mbid: mbid),
         tracks: tracks,
         duration: duration,
       );
@@ -262,7 +272,8 @@ Future<ReleaseGroupInfo> fetchReleaseGroupInfo(String mbid) {
                   status: release["status"],
                 ))
             .toList(),
-        coverArtUri: formCoverArtUri(entity: _Entity.releaseGroup, mbid: mbid),
+        coverArtData:
+            buildCoverArtData(entity: _Entity.releaseGroup, mbid: mbid),
       );
     }
 
@@ -294,8 +305,8 @@ Future<List<ReleaseGroupSearchResult>> searchReleaseGroup(String query) {
                           (release) => Mbid(release["id"], MbidType.release))
                       ?.toList() ??
                   List(),
-              coverArtUri:
-                  formCoverArtUri(entity: _Entity.releaseGroup, mbid: mbid),
+              coverArtData:
+                  buildCoverArtData(entity: _Entity.releaseGroup, mbid: mbid),
               primaryType: extractReleaseType(releaseGroup["primary-type"]),
               searchScore: releaseGroup["score"],
             );

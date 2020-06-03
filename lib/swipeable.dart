@@ -20,6 +20,7 @@ class Swipeable extends StatefulWidget {
 
   final double Function() _width, _height;
   final Color _foregroundColor, _backgroundColor;
+  final double _opacity;
 
   final Map<SwipeEvent, void Function()> _callbacks;
 
@@ -30,6 +31,7 @@ class Swipeable extends StatefulWidget {
       @required double Function() height,
       Color foregroundColor,
       Color backgroundColor,
+      double opacity = 1.0,
       Widget Function(BuildContext context) buildPopupContent,
       Map<SwipeEvent, void Function()> callbacks})
       : _buildContent = buildContent,
@@ -38,6 +40,7 @@ class Swipeable extends StatefulWidget {
         _height = height,
         _foregroundColor = foregroundColor,
         _backgroundColor = backgroundColor,
+        _opacity = opacity,
         _callbacks = callbacks ?? Map();
 
   bool hasCallback(SwipeEvent event) => _callbacks.containsKey(event);
@@ -261,7 +264,8 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     Widget foreground = Material(
-      color: widget._foregroundColor ?? Theme.of(context).backgroundColor,
+      color: _withOpacity(
+          widget._foregroundColor ?? Theme.of(context).backgroundColor),
       child: InkWell(
         onTap: () {
           FocusScope.of(context).unfocus();
@@ -321,12 +325,16 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
               ]
             : <Widget>[]);
 
+    Color defaultBackgroundColor = Theme.of(context).cardColor;
+
     Widget background = Material(
-        color: position > 0
-            ? (playNowSlide ? Theme.of(context).primaryColor : Colors.white12)
+        color: _withOpacity(position > 0
+            ? (playNowSlide
+                ? Theme.of(context).primaryColor
+                : defaultBackgroundColor)
             : (deleteSlide
                 ? Colors.red
-                : (widget._backgroundColor ?? Colors.white12)),
+                : (widget._backgroundColor ?? defaultBackgroundColor))),
         child: Container(
             width: width,
             height: height,
@@ -369,4 +377,7 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
       onHorizontalDragEnd: (details) => handleDragEnd(),
     );
   }
+
+  Color _withOpacity(Color color) =>
+      widget._opacity == 1.0 ? color : color.withOpacity(widget._opacity);
 }

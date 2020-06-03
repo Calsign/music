@@ -2,10 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:music/data.dart';
-import 'package:music/support.dart';
+
+import 'package:provider/provider.dart';
+
+import 'musicbrainz.dart' as musicbrainz;
 
 import 'support.dart';
+import 'data.dart';
+import 'model.dart';
 import 'swipeable.dart';
 import 'listEntry.dart';
 import 'search.dart';
@@ -83,7 +87,7 @@ class _SearchScreenState extends State<SearchScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
-        backgroundColor: Color(0xFF444444),
+        backgroundColor: Theme.of(context).cardColor,
         title: TextField(
           autofocus: true,
           style: TextStyle(fontSize: 20.0),
@@ -114,11 +118,21 @@ class _SearchScreenState extends State<SearchScreen> {
                   return ListEntry(
                     ListEntryData.ofReleaseGroupSearchResult(
                         snapshot.data[index]),
-                    foregroundColor: Color(0xFF222222).withOpacity(0.9),
+                    foregroundColor: Color(0xFF111111),
+                    opacity: 0.6,
                     callbacks: {
-                      SwipeEvent.addToQueue: () => null,
-                      SwipeEvent.playNext: () => null,
-                      SwipeEvent.playNow: () => null,
+                      SwipeEvent.addToQueue: () =>
+                          _buildQueue(snapshot.data[index]).then((tracks) =>
+                              Provider.of<QueueModel>(context, listen: false)
+                                  .addAllToQueue(tracks)),
+                      SwipeEvent.playNext: () =>
+                          _buildQueue(snapshot.data[index]).then((tracks) =>
+                              Provider.of<QueueModel>(context, listen: false)
+                                  .playAllNext(tracks)),
+                      SwipeEvent.playNow: () =>
+                          _buildQueue(snapshot.data[index]).then((tracks) =>
+                              Provider.of<QueueModel>(context, listen: false)
+                                  .setQueue(tracks)),
                       SwipeEvent.goToArtist: () => null,
                       SwipeEvent.select: () {
                         Navigator.of(context)
@@ -142,5 +156,14 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ),
     );
+  }
+
+  Future<Iterable<QueuedTrackInfo>> _buildQueue(
+      ReleaseGroupSearchResult releaseGroup) {
+    return musicbrainz.fetchReleaseGroupInfo(releaseGroup.mbid).then(
+        (releaseGroup) => musicbrainz
+            .fetchReleaseInfo(releaseGroup.selectBestRelease().mbid)
+            .then((release) => release.tracks.map<QueuedTrackInfo>((track) =>
+                QueuedTrackInfo.ofReleaseTrackInfo(releaseGroup, track))));
   }
 }

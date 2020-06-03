@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import 'data.dart';
 import 'secret.dart';
+import 'util.dart';
 
 String domain = "ws.audioscrobbler.com";
 String apiPath = "/2.0/";
@@ -82,7 +83,7 @@ Future<ReleaseInfo> fetchReleaseInfo(String artist, String album) {
           title: data["album"]["name"],
           artists: <MbidOf<String>>[MbidOf.empty(data["album"]["artist"])],
           tracks: tracks,
-          albumArtUri: albumArtUri,
+          coverArtData: CoverArtData([Pair(albumArtUri, 200.0)]), // 200.0 is guessed
           duration: duration,
           description: description,
         );
