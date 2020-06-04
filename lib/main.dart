@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'support.dart';
 import 'data.dart';
 import 'model.dart';
-import 'listEntry.dart';
 import 'mainAppBar.dart';
 import 'releaseGroupView.dart';
 import 'queueScreen.dart';
@@ -21,6 +20,7 @@ class MusicApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => DownloadedOnlyModel()),
         ChangeNotifierProvider(create: (context) => MainPageIndexModel()),
         ChangeNotifierProvider(create: (context) => QueueModel()),
+        ChangeNotifierProvider(create: (context) => PlaybackProgressModel()),
       ],
       child: MaterialApp(
         title: 'Music',
@@ -37,7 +37,7 @@ class MusicApp extends StatelessWidget {
   }
 }
 
-const double NOW_PLAYING_HEIGHT = 84.0;
+const double NOW_PLAYING_HEIGHT = 90.0;
 
 class MainPage extends StatelessWidget {
   final Mbid _content;
@@ -51,6 +51,7 @@ class MainPage extends StatelessWidget {
     return Scaffold(
       body: _getContent(context),
       backgroundColor: Theme.of(context).backgroundColor,
+      resizeToAvoidBottomInset: false,
       bottomNavigationBar: Material(
         elevation: 16.0,
         child: Consumer<MainPageIndexModel>(
@@ -165,29 +166,9 @@ class MainPage extends StatelessWidget {
                   elevation: 24.0,
                   color: Theme.of(context).cardColor,
                   child: InkWell(
-                    child: Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                      child: ListEntryContents(
-                        ListEntryData.ofQueuedTrackInfo(model.currentTrack),
-                        showNowPlaying: false,
-                        right: Row(
-                          children: <Widget>[
-                            IconButton(
-                              icon: Icon(model.isPlaying
-                                  ? Icons.pause
-                                  : Icons.play_arrow),
-                              onPressed: () => model.togglePlaying(),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.skip_next),
-                              onPressed: () => null,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    onTap: () => Navigator.of(context).push(QueueOverlay()),
+                    child: nowPlayingContents(context, model, heroTag: "nowPlaying/coverArt"),
+                    onTap: () => Navigator.of(context).push(QueueOverlay(
+                        barrierColor: Theme.of(context).cardColor)),
                   ),
                 ),
               )
@@ -195,7 +176,7 @@ class MainPage extends StatelessWidget {
   }
 }
 
-class MainOverlay extends ModalRoute<void> {
+class MainOverlay extends PageRoute<void> {
   Mbid _content;
 
   MainOverlay(Mbid content)

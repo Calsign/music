@@ -22,7 +22,7 @@ String durationToString(Duration duration) {
   if (duration == null) {
     return null;
   } else {
-    double seconds = duration.inMilliseconds / 1000.0;
+    int seconds = (duration.inMilliseconds / 1000.0).round();
     int sec = (seconds % 60).round();
     int min = (seconds / 60).floor();
     if (min < 60) {
@@ -31,4 +31,8 @@ String durationToString(Duration duration) {
       return "${(min / 60).floor()}:${(min % 60).toString().padLeft(2, "0")}:${sec.toString().padLeft(2, "0")}";
     }
   }
+}
+
+String millisToTimeString(int millis) {
+  return durationToString(Duration(milliseconds: millis));
 }

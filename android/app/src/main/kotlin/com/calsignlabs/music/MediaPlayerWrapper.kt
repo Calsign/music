@@ -49,7 +49,7 @@ class MediaPlayerWrapper {
     }
 
     fun prepare() {
-        mediaPlayer.setOnPreparedListener{ onPrepare?.invoke() }
+        mediaPlayer.setOnPreparedListener { onPrepare?.invoke() }
         mediaPlayer.prepare()
         state = State.PREPARED
     }
@@ -76,5 +76,13 @@ class MediaPlayerWrapper {
     fun release() {
         mediaPlayer.release()
         state = State.END
+    }
+
+    fun currentPosition(): Int {
+        return mediaPlayer.currentPosition
+    }
+
+    fun duration(): Int {
+        return mediaPlayer.duration
     }
 }

@@ -86,6 +86,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         backgroundColor: Theme.of(context).cardColor,
         title: TextField(
@@ -120,6 +121,8 @@ class _SearchScreenState extends State<SearchScreen> {
                         snapshot.data[index]),
                     foregroundColor: Color(0xFF111111),
                     opacity: 0.6,
+                    heroTag:
+                        "releaseGroup/${snapshot.data[index].mbid}/coverArt",
                     callbacks: {
                       SwipeEvent.addToQueue: () =>
                           _buildQueue(snapshot.data[index]).then((tracks) =>
@@ -133,7 +136,6 @@ class _SearchScreenState extends State<SearchScreen> {
                           _buildQueue(snapshot.data[index]).then((tracks) =>
                               Provider.of<QueueModel>(context, listen: false)
                                   .setQueue(tracks)),
-                      SwipeEvent.goToArtist: () => null,
                       SwipeEvent.select: () {
                         Navigator.of(context)
                             .push(MainOverlay(snapshot.data[index]));

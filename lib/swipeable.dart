@@ -331,7 +331,7 @@ class _SwipeableState extends State<Swipeable> with TickerProviderStateMixin {
         color: _withOpacity(position > 0
             ? (playNowSlide
                 ? Theme.of(context).primaryColor
-                : defaultBackgroundColor)
+                : (widget._backgroundColor ?? defaultBackgroundColor))
             : (deleteSlide
                 ? Colors.red
                 : (widget._backgroundColor ?? defaultBackgroundColor))),

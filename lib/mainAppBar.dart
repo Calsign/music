@@ -42,11 +42,11 @@ SliverAppBar sliverAppBar(BuildContext context, {Widget title, bool elevated = t
   );
 }
 
-AppBar mainAppBar(BuildContext context, {Widget title, bool elevated = true}) {
+AppBar mainAppBar(BuildContext context, {Widget title, bool elevated = true, Color backgroundColor}) {
   return AppBar(
     elevation: elevated ? 10.0 : 0,
     title: title,
-    backgroundColor: Colors.transparent,
+    backgroundColor: backgroundColor ?? Colors.transparent,
     actions: _actions(context),
   );
 }

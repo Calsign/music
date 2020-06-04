@@ -57,16 +57,16 @@ class QueueModel extends ChangeNotifier {
 
     _streamUris = Map();
 
-    _PlaybackManager().setCallbacks({
-      "onPlay": () {
+    _PlaybackManager().setCallbacks("queueModel", {
+      "onPlay": (args) {
         _isPlaying = true;
         notifyListeners();
       },
-      "onPause": () {
+      "onPause": (args) {
         _isPlaying = false;
         notifyListeners();
       },
-      "onNextTrack": () {
+      "onNextTrack": (args) {
         _currentlyPlayingIndex++;
         notifyListeners();
         _updatePlaybackManagerQueue();
@@ -92,7 +92,8 @@ class QueueModel extends ChangeNotifier {
 
   List<QueuedTrackInfo> get queuedTracks => UnmodifiableListView(_queuedTracks);
 
-  Future<void> _updatePlaybackManagerQueue({resetCurrent: false}) {
+  Future<void> _updatePlaybackManagerQueue(
+      {resetCurrent: false, startIfPaused: true}) {
     List<QueuedTrackInfo> toSubmit = _queuedTracks.sublist(
         _currentlyPlayingIndex,
         math.min(_currentlyPlayingIndex + BUFFER_AHEAD, _queuedTracks.length));
@@ -107,33 +108,33 @@ class QueueModel extends ChangeNotifier {
     }
 
     for (var staleTrack in Set<String>.from(_streamUris.keys).difference(
-        Set<String>.from(
-            toSubmit.map((trackInfo) => trackInfo.mbid)))) {
+        Set<String>.from(toSubmit.map((trackInfo) => trackInfo.mbid)))) {
       _streamUris.remove(staleTrack);
     }
 
     Iterable<Future<String>> futures = toSubmit
         .map<Future<String>>((trackInfo) => _streamUris[trackInfo.mbid]);
 
-    Future<void> all =
-        Future.wait(futures).then((uris) => _PlaybackManager().setQueue(uris));
+    Future<void> all = Future.wait(futures).then((uris) =>
+        _PlaybackManager().setQueue(uris, startIfPaused: startIfPaused));
 
     if (toSubmit.isNotEmpty) {
       // load the first track, then come back and load the subsequent tracks
       return futures.first.then((firstUri) => _PlaybackManager().setQueue(
           [firstUri],
-          sweep: false, resetCurrent: resetCurrent).then((_) => all));
+          sweep: false,
+          resetCurrent: resetCurrent,
+          startIfPaused: startIfPaused).then((_) => all));
     } else {
       return all;
     }
   }
 
-  Future<void> addAllToQueue(Iterable<QueuedTrackInfo> trackInfo,
-      {startIndex = 0}) {
+  Future<void> addAllToQueue(Iterable<QueuedTrackInfo> trackInfo) {
     _queuedTracks.addAll(trackInfo);
-    _currentlyPlayingIndex = startIndex;
     notifyListeners();
-    return _updatePlaybackManagerQueue();
+    return _updatePlaybackManagerQueue(
+        resetCurrent: false, startIfPaused: false);
   }
 
   Future<void> addToQueue(QueuedTrackInfo trackInfo) {
@@ -143,11 +144,36 @@ class QueueModel extends ChangeNotifier {
   Future<void> playAllNext(Iterable<QueuedTrackInfo> trackInfo) {
     _queuedTracks.insertAll(_currentlyPlayingIndex + 1, trackInfo);
     notifyListeners();
-    return _updatePlaybackManagerQueue();
+    return _updatePlaybackManagerQueue(
+        resetCurrent: false, startIfPaused: false);
   }
 
   Future<void> playNext(QueuedTrackInfo trackInfo) {
     return playAllNext([trackInfo]);
+  }
+
+  Future<void> skipTo(int pos) {
+    if (pos >= 0 && pos < _queuedTracks.length) {
+      _currentlyPlayingIndex = pos;
+      notifyListeners();
+      return _updatePlaybackManagerQueue(
+          resetCurrent: true, startIfPaused: true);
+    } else {
+      return Future.value(null);
+    }
+  }
+
+  Future<void> skipNext() {
+    return skipTo(_currentlyPlayingIndex + 1);
+  }
+
+  Future<void> skipPrev(PlaybackProgressModel progressModel) {
+    if (progressModel.position < 5000 && _currentlyPlayingIndex > 0) {
+      // if in the first 5 seconds
+      return skipTo(_currentlyPlayingIndex - 1);
+    } else {
+      return progressModel.skipTo(0);
+    }
   }
 
   Future<void> clearQueue() {
@@ -167,8 +193,56 @@ class QueueModel extends ChangeNotifier {
     _currentlyPlayingIndex = startIndex;
     notifyListeners();
     return _updatePlaybackManagerQueue(resetCurrent: resetCurrent);
-//    return clearQueue()
-//        .then((_) => addAllToQueue(trackInfo, startIndex: startIndex));
+  }
+
+  Future<void> removeFromQueue(int removeIndex) {
+    if (removeIndex >= 0 && removeIndex < _queuedTracks.length) {
+      _queuedTracks.removeAt(removeIndex);
+      if (removeIndex < _currentlyPlayingIndex) {
+        _currentlyPlayingIndex--;
+      }
+      if (_queuedTracks.isEmpty) {
+        _isPlaying = false;
+      }
+      notifyListeners();
+      return _updatePlaybackManagerQueue(
+          resetCurrent: false, startIfPaused: false);
+    } else {
+      return Future.value(null);
+    }
+  }
+}
+
+class PlaybackProgressModel extends ChangeNotifier {
+  int _position, _totalDuration;
+
+  int get position => _position;
+
+  int get totalDuration => _totalDuration;
+
+  double get playbackFraction =>
+      totalDuration == 0 ? 0.0 : math.max(math.min(position / totalDuration, 1.0), 0.0);
+
+  PlaybackProgressModel() {
+    _position = 0;
+    _totalDuration = 0;
+
+    _PlaybackManager().setCallbacks("playbackProgressModel", {
+      "playbackProgressUpdate": (args) {
+        _position = args["position"];
+        _totalDuration = args["totalDuration"];
+        if (_position == -1 || _totalDuration == -1) {
+          _position = 0;
+          _totalDuration = 0;
+        }
+        notifyListeners();
+      }
+    });
+  }
+
+  Future<void> skipTo(int position) {
+    _position = position;
+    return _PlaybackManager().skipTo(position);
   }
 }
 
@@ -179,7 +253,7 @@ class _PlaybackManager {
 
   static _PlaybackManager _instance;
 
-  int statusCounter = 0;
+  Map<String, Map<String, void Function(dynamic)>> _callbacks;
 
   factory _PlaybackManager() {
     if (_instance == null) {
@@ -188,24 +262,28 @@ class _PlaybackManager {
     return _instance;
   }
 
-  _PlaybackManager._();
-
-  void setCallbacks(Map<String, void Function()> callbacks) {
+  _PlaybackManager._() {
+    _callbacks = {};
     _status.setMethodCallHandler((call) {
-      // not sure if this bit is necessary
-      int newCounter = call.arguments as int;
-      if (newCounter > statusCounter) {
-        statusCounter = newCounter;
-        void Function() callback = callbacks[call.method];
+      void Function(dynamic) callback;
+      for (var map in _callbacks.values) {
+        callback = map[call.method];
         if (callback != null) {
-          callback();
-        } else {
-          throw Exception(
-              "Tried to invoke non-existent status method: ${call.method}");
+          break;
         }
+      }
+      if (callback != null) {
+        callback(call.arguments);
+      } else {
+        throw Exception(
+            "Tried to invoke non-existent status method: ${call.method}");
       }
       return Future.value(null);
     });
+  }
+
+  void setCallbacks(String key, Map<String, void Function(dynamic)> callbacks) {
+    this._callbacks[key] = callbacks;
   }
 
   Future<T> _invokePlatformMethod<T>(String method, [dynamic arguments]) async {
@@ -222,9 +300,15 @@ class _PlaybackManager {
       _invokePlatformMethod("getYoutubeStreamUri", {"uri": youtubeUri});
 
   Future<void> setQueue(List<String> queue,
-          {bool sweep = true, bool resetCurrent = false}) =>
-      _invokePlatformMethod("setQueue",
-          {"queue": queue, "sweep": sweep, "resetCurrent": resetCurrent});
+          {bool sweep = true,
+          bool resetCurrent = false,
+          bool startIfPaused = true}) =>
+      _invokePlatformMethod("setQueue", {
+        "queue": queue,
+        "sweep": sweep,
+        "resetCurrent": resetCurrent,
+        "startIfPaused": startIfPaused
+      });
 
   Future<List<YoutubeSearchResult>> searchYoutube(String query) {
     return _invokePlatformMethod("searchYoutube", {"query": query}).then(
@@ -239,4 +323,7 @@ class _PlaybackManager {
   Future<void> play() => _invokePlatformMethod("play");
 
   Future<void> pause() => _invokePlatformMethod("pause");
+
+  Future<void> skipTo(int position) =>
+      _invokePlatformMethod("skipTo", {"position": position});
 }

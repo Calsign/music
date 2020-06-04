@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:music/main.dart';
 
 import 'package:provider/provider.dart';
 
@@ -11,34 +12,37 @@ import 'coverArt.dart';
 
 const double LIST_ENTRY_HEIGHT = 60.0;
 
-enum ListEntryType { track, album, playlist }
+enum ListEntryType { track, releaseGroup, playlist }
+
+enum ListEntrySecondData { releaseGroup, duration }
 
 class ListEntryData extends Mbid {
   final ListEntryType type;
   final String title;
-  final MbidOf<String> album;
+  final MbidOf<String> releaseGroup;
   final int trackNumber;
   final List<MbidOf<String>> artists;
   final CoverArtData coverArtData;
   final int year;
   final Duration duration;
 
-  ListEntryData.ofAlbumTrackInfo(ReleaseInfo album, ReleaseTrackInfo track)
+  ListEntryData.ofAlbumTrackInfo(
+      ReleaseInfo releaseInfo, ReleaseTrackInfo track)
       : type = ListEntryType.track,
         title = track.title,
-        album = MbidOf.copy(album, album.title),
+        releaseGroup = null,
         trackNumber = track.trackNumber,
         artists = track.artists,
-        coverArtData = album.coverArtData,
-        year = album.releaseDate != null ? album.releaseDate.year : null,
+        coverArtData = releaseInfo.coverArtData,
+        year = releaseInfo.releaseDate?.year,
         duration = track.duration,
         super.copy(track);
 
   ListEntryData.ofReleaseGroupSearchResult(
       ReleaseGroupSearchResult releaseGroup)
-      : type = ListEntryType.album,
+      : type = ListEntryType.releaseGroup,
         title = releaseGroup.title,
-        album = null,
+        releaseGroup = null,
         trackNumber = null,
         artists = releaseGroup.artists,
         coverArtData = releaseGroup.coverArtData,
@@ -49,7 +53,7 @@ class ListEntryData extends Mbid {
   ListEntryData.ofQueuedTrackInfo(QueuedTrackInfo trackInfo)
       : type = ListEntryType.track,
         title = trackInfo.title,
-        album = trackInfo.releaseGroup,
+        releaseGroup = trackInfo.releaseGroup,
         trackNumber = null,
         artists = trackInfo.artists,
         coverArtData = trackInfo.coverArtData,
@@ -64,6 +68,8 @@ class ListEntry extends StatelessWidget {
   final Color _foregroundColor, _backgroundColor;
   final double _opacity;
   final bool _showTrackNumber, _showNowPlaying;
+  final Object _heroTag;
+  final ListEntrySecondData _secondData;
 
   ListEntry(ListEntryData data,
       {Map<SwipeEvent, void Function()> callbacks,
@@ -71,17 +77,29 @@ class ListEntry extends StatelessWidget {
       Color backgroundColor,
       double opacity = 1.0,
       bool showTrackNumber = false,
-      bool showNowPlaying = true})
+      bool showNowPlaying = true,
+      Object heroTag,
+      ListEntrySecondData secondData = ListEntrySecondData.duration})
       : _data = data,
         _callbacks = callbacks ?? Map(),
         _foregroundColor = foregroundColor,
         _backgroundColor = backgroundColor,
         _opacity = opacity,
         _showTrackNumber = showTrackNumber,
-        _showNowPlaying = showNowPlaying;
+        _showNowPlaying = showNowPlaying,
+        _heroTag = heroTag,
+        _secondData = secondData {
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_data.releaseGroup != null) {
+      _callbacks[SwipeEvent.goToAlbum] = () => Navigator.push(context, MainOverlay(_data.releaseGroup));
+    }
+    if (_data.artists != null) {
+      _callbacks[SwipeEvent.goToArtist] = () => null;
+    }
+
     return Swipeable(
       foregroundColor: _foregroundColor,
       backgroundColor: _backgroundColor,
@@ -92,6 +110,8 @@ class ListEntry extends StatelessWidget {
           _data,
           showTrackNumber: _showTrackNumber,
           showNowPlaying: _showNowPlaying,
+          heroTag: _heroTag,
+          secondData: _secondData,
         ),
       ),
       buildPopupContent: (context) => Padding(
@@ -109,13 +129,21 @@ class ListEntryContents extends StatelessWidget {
   final ListEntryData _data;
   final bool _showTrackNumber, _showNowPlaying;
   final Widget _right;
+  final Object _heroTag;
+  final ListEntrySecondData _secondData;
 
   ListEntryContents(ListEntryData data,
-      {bool showTrackNumber = false, bool showNowPlaying = true, Widget right})
+      {bool showTrackNumber = false,
+      bool showNowPlaying = true,
+      Widget right,
+      Object heroTag,
+      ListEntrySecondData secondData = ListEntrySecondData.duration})
       : _data = data,
         _showTrackNumber = showTrackNumber,
         _showNowPlaying = showNowPlaying,
-        _right = right;
+        _right = right,
+        _heroTag = heroTag,
+        _secondData = secondData;
 
   Widget _icon(BuildContext context) {
     if (_data.type == ListEntryType.track &&
@@ -142,20 +170,26 @@ class ListEntryContents extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    var secondData = _data.type == ListEntryType.track
-        ? (_data.trackNumber == null
-            ? _data.album.value
-            : durationToString(_data.duration))
-        : _data.year;
+    var secondData;
+    if (_data.type == ListEntryType.track) {
+      switch (_secondData) {
+        case ListEntrySecondData.releaseGroup:
+          secondData = _data.releaseGroup.value;
+          break;
+        case ListEntrySecondData.duration:
+          secondData = durationToString(_data.duration);
+          break;
+      }
+    } else {
+      secondData = _data.year;
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
         Consumer<QueueModel>(
           builder: (context, model, child) {
-            if (_showNowPlaying &&
-                model.currentTrack != null &&
-                model.isPlaying) {
+            if (_showNowPlaying && model.currentTrack != null) {
               var testMbid;
               switch (_data.mbidType) {
                 case MbidType.recording:
@@ -174,13 +208,17 @@ class ListEntryContents extends StatelessWidget {
               }
 
               return testMbid == _data.mbid
-                  ? const Icon(Icons.equalizer, size: 42.0)
+                  ? (model.isPlaying
+                      ? const Icon(Icons.equalizer, size: 42.0)
+                      : const Icon(Icons.remove, size: 42.0))
                   : child;
             } else {
               return child;
             }
           },
-          child: _icon(context),
+          child: _heroTag != null
+              ? Hero(tag: _heroTag, child: _icon(context))
+              : _icon(context),
         ),
         SizedBox(width: 16.0),
         Expanded(

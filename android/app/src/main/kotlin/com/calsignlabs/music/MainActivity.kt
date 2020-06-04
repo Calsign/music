@@ -15,6 +15,8 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.*
 
 import com.calsignlabs.music.MediaPlayerWrapper.State.*
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class MainActivity : FlutterActivity() {
     private var status: MethodChannel? = null
@@ -26,22 +28,45 @@ class MainActivity : FlutterActivity() {
     private val mediaPool = LinkedHashMap<String, MediaPlayerWrapper>()
     private var queue: ArrayList<String> = ArrayList()
 
-    private var statusCounter = 0
+    private val scheduledExecutorService = Executors.newScheduledThreadPool(1)
 
     init {
         NewPipe.init(DownloaderImpl.init(null))
+
+        scheduledExecutorService.scheduleAtFixedRate({
+            runOnUiThread {
+                var position: Int = -1
+                var totalDuration: Int = -1
+
+                val mediaPlayer = getCurrentMediaPlayer()
+
+                if (mediaPlayer != null && mediaPlayer.isState(STARTED, PAUSED, COMPLETED)) {
+                    position = mediaPlayer.currentPosition()
+                    totalDuration = mediaPlayer.duration()
+                }
+
+                invokeStatus("playbackProgressUpdate", hashMapOf(
+                        "position" to position,
+                        "totalDuration" to totalDuration
+                ))
+            }
+        }, 1000, 1000, TimeUnit.MILLISECONDS)
     }
 
     private fun getCurrentMediaPlayer(): MediaPlayerWrapper? {
         return if (mediaPool.isNotEmpty() && queue.isNotEmpty()) mediaPool[queue[0]] else null
     }
 
-    private fun invokeStatus(method: String) {
+    private fun invokeStatus(method: String, data: Any?) {
         try {
-            status?.invokeMethod(method, ++statusCounter)
+            status?.invokeMethod(method, data)
         } catch (e: Exception) {
             println("Failed to send status update $method, exception: ${e.message}")
         }
+    }
+
+    private fun invokeStatus(method: String) {
+        invokeStatus(method, null)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -71,10 +96,20 @@ class MainActivity : FlutterActivity() {
                             val newQueue: List<String>? = call.argument("queue")
                             val sweep: Boolean? = call.argument("sweep")
                             val resetCurrent: Boolean? = call.argument("resetCurrent")
+                            val startIfPaused: Boolean? = call.argument("startIfPaused")
                             if (newQueue != null) {
-                                setQueue(newQueue, sweep ?: true, resetCurrent ?: false, result)
+                                setQueue(newQueue, sweep ?: true, resetCurrent ?: false,
+                                        startIfPaused ?: true, result)
                             } else {
                                 throw Exception("No queue specified to setQueue")
+                            }
+                        }
+                        "skipTo" -> {
+                            val position: Int? = call.argument("position")
+                            if (position != null) {
+                                skipTo(position, result)
+                            } else {
+                                throw Exception("No position specified to skipTo")
                             }
                         }
                     }
@@ -86,6 +121,7 @@ class MainActivity : FlutterActivity() {
         for (mediaPlayer in mediaPool.values) {
             mediaPlayer.release()
         }
+        scheduledExecutorService.shutdown()
         super.onDestroy()
     }
 
@@ -93,7 +129,7 @@ class MainActivity : FlutterActivity() {
         var played = false
         synchronized(this) {
             val currentMediaPlayer = getCurrentMediaPlayer()
-            if (currentMediaPlayer != null && currentMediaPlayer.isState(PAUSED, PREPARED)) {
+            if (currentMediaPlayer != null && currentMediaPlayer.isState(PAUSED, PREPARED, COMPLETED)) {
                 try {
                     currentMediaPlayer.start()
                 } catch (e: Exception) {
@@ -128,6 +164,33 @@ class MainActivity : FlutterActivity() {
             result.success(null)
         } else {
             result.error("Failed", "Already paused: ${getCurrentMediaPlayer()?.state()?.name}", null)
+        }
+    }
+
+    private fun skipTo(position: Int, result: MethodChannel.Result) {
+        var skipped = false
+        synchronized(this) {
+            val currentMediaPlayer = getCurrentMediaPlayer()
+            try {
+                if (currentMediaPlayer != null) {
+                    if (currentMediaPlayer.isState(STARTED, PAUSED)) {
+                        currentMediaPlayer.seekTo(position)
+                        skipped = true
+                    } else if (currentMediaPlayer.isState(COMPLETED)) {
+                        currentMediaPlayer.start()
+                        currentMediaPlayer.pause()
+                        currentMediaPlayer.seekTo(position)
+                        skipped = true
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        if (skipped) {
+            result.success(null)
+        } else {
+            result.error("Failed", "Cannot seek: ${getCurrentMediaPlayer()?.state()?.name}", null)
         }
     }
 
@@ -170,7 +233,13 @@ class MainActivity : FlutterActivity() {
     private fun getYoutubeStreamUri(uri: String, result: MethodChannel.Result) {
         AsyncTask.execute {
             try {
-                val streamUri = performGetYoutubeStreamUri(uri)
+                var streamUri: String? = null
+                var count = 0
+                // sometimes it fails to get the stream... try again?
+                while (count < 3 && streamUri == null) {
+                    streamUri = performGetYoutubeStreamUri(uri)
+                    count++
+                }
                 runOnUiThread {
                     if (streamUri != null) {
                         result.success(streamUri)
@@ -186,20 +255,25 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun performGetYoutubeStreamUri(uri: String): String? {
-        val streamExtractor = youtubeService.getStreamExtractor(youtubeStreamLinkHandler.fromUrl(uri))
-        streamExtractor.fetchPage()
+        return try {
+            val streamExtractor = youtubeService.getStreamExtractor(youtubeStreamLinkHandler.fromUrl(uri))
+            streamExtractor.fetchPage()
 
-        return if (streamExtractor.audioStreams.isNotEmpty()) {
-            streamExtractor.audioStreams.sortBy { stream -> -stream.averageBitrate }
-            streamExtractor.audioStreams[0].url
-        } else {
+            if (streamExtractor.audioStreams.isNotEmpty()) {
+                streamExtractor.audioStreams.sortBy { stream -> -stream.averageBitrate }
+                streamExtractor.audioStreams[0].url
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
             null
         }
     }
 
-    private fun setQueue(newQueue: Iterable<String>, sweep: Boolean, resetCurrent: Boolean, result: MethodChannel.Result) {
+    private fun setQueue(newQueue: Iterable<String>, sweep: Boolean, resetCurrent: Boolean, startIfPaused: Boolean, result: MethodChannel.Result) {
         try {
-            performSetQueue(newQueue, sweep, resetCurrent)
+            performSetQueue(newQueue, sweep, resetCurrent, startIfPaused)
             result.success(null)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -207,11 +281,13 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun performSetQueue(newQueueIterable: Iterable<String>, sweep: Boolean, resetCurrent: Boolean) {
+    private fun performSetQueue(newQueueIterable: Iterable<String>, sweep: Boolean, resetCurrent: Boolean, startIfPaused: Boolean) {
         val newQueue = newQueueIterable.toList()
         val firstNewTrack = if (newQueue.isNotEmpty()) newQueue[0] else null
 
         synchronized(this) {
+            val wasPlaying = getCurrentMediaPlayer()?.isState(STARTED) ?: false
+
             if (queue.isNotEmpty() && newQueue.isNotEmpty()) {
                 if (queue.first() == firstNewTrack) {
                     if (resetCurrent && getCurrentMediaPlayer()?.isState(STARTED) == true) {
@@ -291,7 +367,7 @@ class MainActivity : FlutterActivity() {
             }
 
             for (entry in mediaPool.entries) {
-                if (entry.key == firstNewTrack) {
+                if (entry.key == firstNewTrack && (startIfPaused || wasPlaying)) {
                     entry.value.setOnPrepare {
                         entry.value.start()
                         invokeStatus("onPlay")
@@ -313,7 +389,9 @@ class MainActivity : FlutterActivity() {
                         // this is really dumb but sometimes we have issues
                         // so just be safe and make sure it's paused
                         entry.value.pause()
-                        entry.value.seekTo(0)
+                        if (entry.key != firstNewTrack) {
+                            entry.value.seekTo(0)
+                        }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }

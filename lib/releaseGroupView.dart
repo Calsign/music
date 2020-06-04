@@ -40,6 +40,12 @@ class ReleaseGroupView
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           if (index == 0) {
+            String extraInfo = <String>[
+              "${releaseInfo.right.tracks.length} tracks",
+              durationToString(releaseInfo.right.duration),
+              releaseInfo.left.releaseDate?.year?.toString(),
+            ].where((element) => element != null).join(" \u{00b7} ");
+
             return Swipeable(
               width: () => MediaQuery.of(context).size.width,
               height: () => swipeableHeight,
@@ -48,10 +54,13 @@ class ReleaseGroupView
                 alignment: Alignment.center,
                 child: Row(
                   children: <Widget>[
-                    coverArt(
-                        mainArt: releaseInfo.right.coverArtData,
-                        backupArt: releaseInfo.left.coverArtData,
-                        size: albumArtSize),
+                    Hero(
+                      tag: "releaseGroup/${releaseInfo.left.mbid}/coverArt",
+                      child: coverArt(
+                          mainArt: releaseInfo.right.coverArtData,
+                          backupArt: releaseInfo.left.coverArtData,
+                          size: albumArtSize),
+                    ),
                     SizedBox(width: padding),
                     Flexible(
                       child: Column(
@@ -60,24 +69,23 @@ class ReleaseGroupView
                         children: <Widget>[
                           Text(
                             releaseInfo.left.title,
-                            style: const TextStyle(fontSize: 20.0),
+                            style: const TextStyle(
+                                fontSize: 20.0, fontWeight: FontWeight.w700),
                           ),
                           SizedBox(height: 6.0),
                           Text(
                             releaseInfo.left.artists
                                 .map((artist) => artist.value)
                                 .join(", "),
-                            style: const TextStyle(fontSize: 16.0),
+                            style: const TextStyle(fontSize: 14.0),
                           ),
-                          SizedBox(height: 24.0),
+                          SizedBox(height: 20.0),
                           Text(
-                            "${releaseInfo.right.tracks.length} tracks \u{00b7} ${durationToString(releaseInfo.right.duration)}",
-                            style: const TextStyle(fontSize: 12.0),
-                          ),
-                          SizedBox(height: 6.0),
-                          Text(
-                            "${releaseInfo.left.releaseDate?.year ?? ""}",
-                            style: const TextStyle(fontSize: 12.0),
+                            extraInfo,
+                            style: const TextStyle(
+                              fontSize: 11.0,
+                              color: Colors.white70,
+                            ),
                           ),
                         ],
                       ),
@@ -97,7 +105,6 @@ class ReleaseGroupView
                 SwipeEvent.playNext: () =>
                     Provider.of<QueueModel>(context, listen: false)
                         .playAllNext(releaseQueue),
-                SwipeEvent.goToArtist: () => print("going to album artist"),
               },
             );
           } else if (index > releaseInfo.right.tracks.length) {
@@ -122,10 +129,6 @@ class ReleaseGroupView
                       releaseQueue,
                       startIndex: index - 1,
                     ),
-                SwipeEvent.goToAlbum: () =>
-                    print("going to album ${entry.album}"),
-                SwipeEvent.goToArtist: () => print(
-                    "going to artist ${entry.artists.map((artist) => artist.value).join(", ")}"),
               },
             );
           }
