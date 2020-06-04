@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'model.dart';
 import 'searchScreen.dart';
+import 'playbackDeviceSelector.dart';
 
 Iterable<Widget> _actions(BuildContext context) {
   return <Widget>[
@@ -20,7 +21,7 @@ Iterable<Widget> _actions(BuildContext context) {
     IconButton(
       icon: const Icon(Icons.cast),
       tooltip: "Playback Devices",
-      onPressed: () => null,
+      onPressed: () => showPlaybackDevicesSelector(context),
     ),
     IconButton(
       icon: const Icon(Icons.search),

@@ -64,8 +64,15 @@ repositories {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+
+    // NewPipe extractor
     implementation "com.squareup.okhttp3:okhttp:4.7.2"
     implementation 'com.github.TeamNewPipe:nanojson:1d9e1aea9049fc9f85e68b43ba39fe7be1c1f751'
     implementation 'org.jsoup:jsoup:1.13.1'
     implementation 'com.github.TeamNewPipe:NewPipeExtractor:v0.19.5'
+
+    // Google Cast SDK
+    implementation 'com.android.support:appcompat-v7:28.0.0'
+    implementation 'com.android.support:mediarouter-v7:28.0.0'
+    implementation 'com.google.android.gms:play-services-cast-framework:18.1.0'
 }

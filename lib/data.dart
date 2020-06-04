@@ -102,19 +102,19 @@ class QueuedTrackInfo extends Mbid {
     this.releaseDate,
   }) : super(mbid, MbidType.recording);
 
-  QueuedTrackInfo.ofReleaseTrackInfo(ReleaseGroupInfo releaseInfo,
-      ReleaseTrackInfo trackInfo)
+  QueuedTrackInfo.ofReleaseTrackInfo(
+      ReleaseGroupInfo releaseInfo, ReleaseTrackInfo trackInfo)
       : this(
-    mbid: trackInfo.mbid,
-    title: trackInfo.title,
-    artists: trackInfo.artists,
-    releaseGroup: MbidOf.copy(releaseInfo, releaseInfo.title),
-    release: null,
-    // TODO
-    duration: trackInfo.duration,
-    coverArtData: releaseInfo.coverArtData,
-    releaseDate: releaseInfo.releaseDate,
-  );
+          mbid: trackInfo.mbid,
+          title: trackInfo.title,
+          artists: trackInfo.artists,
+          releaseGroup: MbidOf.copy(releaseInfo, releaseInfo.title),
+          release: null,
+          // TODO
+          duration: trackInfo.duration,
+          coverArtData: releaseInfo.coverArtData,
+          releaseDate: releaseInfo.releaseDate,
+        );
 }
 
 class ReleaseTrackInfo extends Mbid {
@@ -123,11 +123,12 @@ class ReleaseTrackInfo extends Mbid {
   final List<MbidOf<String>> artists;
   final Duration duration;
 
-  const ReleaseTrackInfo({@required String mbid,
-    @required String title,
-    @required List<MbidOf<String>> artists,
-    int trackNumber,
-    Duration duration})
+  const ReleaseTrackInfo(
+      {@required String mbid,
+      @required String title,
+      @required List<MbidOf<String>> artists,
+      int trackNumber,
+      Duration duration})
       : title = title,
         artists = artists,
         trackNumber = trackNumber,
@@ -144,14 +145,15 @@ class ReleaseInfo extends Mbid {
   final String description;
   final DateTime releaseDate;
 
-  const ReleaseInfo({@required String mbid,
-    @required String title,
-    @required List<MbidOf<String>> artists,
-    @required List<ReleaseTrackInfo> tracks,
-    @required CoverArtData coverArtData,
-    Duration duration,
-    String description,
-    DateTime releaseDate})
+  const ReleaseInfo(
+      {@required String mbid,
+      @required String title,
+      @required List<MbidOf<String>> artists,
+      @required List<ReleaseTrackInfo> tracks,
+      @required CoverArtData coverArtData,
+      Duration duration,
+      String description,
+      DateTime releaseDate})
       : title = title,
         artists = artists,
         tracks = tracks,
@@ -169,12 +171,13 @@ class ReleaseGroupReleaseInfo extends Mbid {
   final String country;
   final DateTime releaseDate;
 
-  const ReleaseGroupReleaseInfo({@required String mbid,
-    @required String title,
-    @required String status,
-    @required String packaging,
-    @required String country,
-    @required DateTime releaseDate})
+  const ReleaseGroupReleaseInfo(
+      {@required String mbid,
+      @required String title,
+      @required String status,
+      @required String packaging,
+      @required String country,
+      @required DateTime releaseDate})
       : title = title,
         status = status,
         packaging = packaging,
@@ -191,13 +194,14 @@ class ReleaseGroupInfo extends Mbid {
   final List<ReleaseGroupReleaseInfo> releases;
   final CoverArtData coverArtData;
 
-  const ReleaseGroupInfo({@required String mbid,
-    @required String title,
-    @required ReleaseGroupType type,
-    @required DateTime releaseDate,
-    @required List<MbidOf<String>> artists,
-    @required List<ReleaseGroupReleaseInfo> releases,
-    @required CoverArtData coverArtData})
+  const ReleaseGroupInfo(
+      {@required String mbid,
+      @required String title,
+      @required ReleaseGroupType type,
+      @required DateTime releaseDate,
+      @required List<MbidOf<String>> artists,
+      @required List<ReleaseGroupReleaseInfo> releases,
+      @required CoverArtData coverArtData})
       : title = title,
         type = type,
         releaseDate = releaseDate,
@@ -242,8 +246,7 @@ class ReleaseGroupInfo extends Mbid {
         mapCountry,
         mapReleaseDate,
       ]) {
-        int mapA = mapper.call(a),
-            mapB = mapper.call(b);
+        int mapA = mapper.call(a), mapB = mapper.call(b);
         if (mapA != mapB) {
           return mapA - mapB;
         }
@@ -263,14 +266,15 @@ class ReleaseGroupSearchResult extends Mbid {
   final List<String> secondaryTypes;
   final int searchScore;
 
-  ReleaseGroupSearchResult({@required String mbid,
-    @required String title,
-    @required List<MbidOf<String>> artists,
-    @required List<Mbid> releaseMbids,
-    @required CoverArtData coverArtData,
-    ReleaseGroupType primaryType,
-    List<String> secondaryTypes,
-    int searchScore})
+  ReleaseGroupSearchResult(
+      {@required String mbid,
+      @required String title,
+      @required List<MbidOf<String>> artists,
+      @required List<Mbid> releaseMbids,
+      @required CoverArtData coverArtData,
+      ReleaseGroupType primaryType,
+      List<String> secondaryTypes,
+      int searchScore})
       : title = title,
         artists = artists,
         releaseMbids = releaseMbids,
@@ -284,7 +288,7 @@ class ReleaseGroupSearchResult extends Mbid {
 extension ReleaseGroupSearchResultBestSorter on List<ReleaseGroupSearchResult> {
   int _mapDiscardOtherBroadcast(ReleaseGroupSearchResult result) {
     return result.primaryType == ReleaseGroupType.other ||
-        result.primaryType == ReleaseGroupType.broadcast
+            result.primaryType == ReleaseGroupType.broadcast
         ? 1
         : 0;
   }
@@ -317,8 +321,7 @@ extension ReleaseGroupSearchResultBestSorter on List<ReleaseGroupSearchResult> {
         _mapSearchScore,
         _mapPrimaryReleaseType,
       ]) {
-        int mapA = mapper.call(a),
-            mapB = mapper.call(b);
+        int mapA = mapper.call(a), mapB = mapper.call(b);
         if (mapA != mapB) {
           return mapA - mapB;
         }
@@ -337,26 +340,27 @@ class YoutubeSearchResult {
   String title, uri, uploader;
   int duration, views, rank;
 
-  YoutubeSearchResult({this.title,
-    this.uri,
-    this.duration,
-    this.views,
-    this.uploader,
-    this.rank});
+  YoutubeSearchResult(
+      {this.title,
+      this.uri,
+      this.duration,
+      this.views,
+      this.uploader,
+      this.rank});
 
   YoutubeSearchResult.fromJson(dynamic json, int rank)
       : this(
-      title: json["title"],
-      uri: json["uri"],
-      duration: json["duration"],
-      views: json["views"],
-      uploader: json["uploader"],
-      rank: rank);
+            title: json["title"],
+            uri: json["uri"],
+            duration: json["duration"],
+            views: json["views"],
+            uploader: json["uploader"],
+            rank: rank);
 }
 
 extension YoutubeSearchResultBestSorter on List<YoutubeSearchResult> {
-  int _mapRemovePlaylists(YoutubeSearchResult result,
-      QueuedTrackInfo trackInfo) {
+  int _mapRemovePlaylists(
+      YoutubeSearchResult result, QueuedTrackInfo trackInfo) {
     return result.uri.contains("/playlist") ? 1 : 0;
   }
 
@@ -370,8 +374,8 @@ extension YoutubeSearchResultBestSorter on List<YoutubeSearchResult> {
     }
   }
 
-  int _mapRemoveDerivatives(YoutubeSearchResult result,
-      QueuedTrackInfo trackInfo) {
+  int _mapRemoveDerivatives(
+      YoutubeSearchResult result, QueuedTrackInfo trackInfo) {
     int count = 0;
     for (String keyword in const <String>[
       "mix", // also gets "remix"
@@ -398,8 +402,8 @@ extension YoutubeSearchResultBestSorter on List<YoutubeSearchResult> {
     return ((result.duration - trackInfo.duration.inSeconds).abs() / 5).round();
   }
 
-  List<YoutubeSearchResult> _sorted(List<YoutubeSearchResult> results,
-      QueuedTrackInfo trackInfo) {
+  List<YoutubeSearchResult> _sorted(
+      List<YoutubeSearchResult> results, QueuedTrackInfo trackInfo) {
     List<YoutubeSearchResult> listClone = List.from(results);
     listClone.sort((a, b) {
       for (var mapper in <int Function(YoutubeSearchResult, QueuedTrackInfo)>[
@@ -408,8 +412,7 @@ extension YoutubeSearchResultBestSorter on List<YoutubeSearchResult> {
         _mapDuration,
         _mapUploader,
       ]) {
-        int mapA = mapper.call(a, trackInfo),
-            mapB = mapper.call(b, trackInfo);
+        int mapA = mapper.call(a, trackInfo), mapB = mapper.call(b, trackInfo);
         if (mapA != mapB) {
           return mapA - mapB;
         }
@@ -430,4 +433,15 @@ extension YoutubeSearchResultBestSorter on List<YoutubeSearchResult> {
 
     return sorted.isNotEmpty ? sorted[0] : null;
   }
+}
+
+class PlaybackDevice {
+  String id, name, description;
+  int deviceType;
+
+  PlaybackDevice.fromJson(json)
+      : id = json["id"],
+        name = json["name"],
+        description = json["description"],
+        deviceType = json["deviceType"];
 }

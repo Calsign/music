@@ -1,6 +1,9 @@
 package com.calsignlabs.music
 
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
+import android.os.Build
 
 class MediaPlayerWrapper {
     private val mediaPlayer = MediaPlayer()
@@ -40,6 +43,16 @@ class MediaPlayerWrapper {
             if (onComplete?.invoke() == true) {
                 state = State.COMPLETED
             }
+        }
+
+        if (Build.VERSION.SDK_INT >= 21) {
+            val builder = AudioAttributes.Builder()
+            builder.setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            builder.setUsage(AudioAttributes.USAGE_MEDIA)
+            mediaPlayer.setAudioAttributes(builder.build())
+        } else {
+            @Suppress("DEPRECATION")
+            mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC)
         }
     }
 

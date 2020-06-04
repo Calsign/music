@@ -220,8 +220,9 @@ class PlaybackProgressModel extends ChangeNotifier {
 
   int get totalDuration => _totalDuration;
 
-  double get playbackFraction =>
-      totalDuration == 0 ? 0.0 : math.max(math.min(position / totalDuration, 1.0), 0.0);
+  double get playbackFraction => totalDuration == 0
+      ? 0.0
+      : math.max(math.min(position / totalDuration, 1.0), 0.0);
 
   PlaybackProgressModel() {
     _position = 0;
@@ -236,7 +237,7 @@ class PlaybackProgressModel extends ChangeNotifier {
           _totalDuration = 0;
         }
         notifyListeners();
-      }
+      },
     });
   }
 
@@ -244,6 +245,38 @@ class PlaybackProgressModel extends ChangeNotifier {
     _position = position;
     return _PlaybackManager().skipTo(position);
   }
+}
+
+class PlaybackDeviceModel extends ChangeNotifier {
+  List<PlaybackDevice> _devices;
+  String _selectedDevice;
+
+  List<PlaybackDevice> get devices => _devices;
+
+  String get selectedDevice => _selectedDevice;
+
+  PlaybackDeviceModel() {
+    _devices = List();
+
+    _PlaybackManager().setCallbacks("playbackDeviceModel", {
+      "playbackDevices": (devices) {
+        _devices = devices
+            .map<PlaybackDevice>((json) => PlaybackDevice.fromJson(json)).toList();
+        notifyListeners();
+      },
+      "selectedPlaybackDevice": (selectedDevice) {
+        _selectedDevice = selectedDevice;
+        notifyListeners();
+      },
+    });
+  }
+
+  Future<void> startSearch() => _PlaybackManager().startDeviceSearch();
+
+  Future<void> stopSearch() => _PlaybackManager().stopDeviceSearch();
+
+  Future<void> selectDevice(String deviceId) =>
+      _PlaybackManager().selectDevice(deviceId);
 }
 
 class _PlaybackManager {
@@ -326,4 +359,13 @@ class _PlaybackManager {
 
   Future<void> skipTo(int position) =>
       _invokePlatformMethod("skipTo", {"position": position});
+
+  Future<void> startDeviceSearch() =>
+      _invokePlatformMethod("startPlaybackDeviceSearch");
+
+  Future<void> stopDeviceSearch() =>
+      _invokePlatformMethod("stopPlaybackDeviceSearch");
+
+  Future<void> selectDevice(String deviceId) =>
+      _invokePlatformMethod("selectPlaybackDevice", {"device": deviceId});
 }

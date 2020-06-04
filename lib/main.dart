@@ -21,6 +21,7 @@ class MusicApp extends StatelessWidget {
         ChangeNotifierProvider(create: (context) => MainPageIndexModel()),
         ChangeNotifierProvider(create: (context) => QueueModel()),
         ChangeNotifierProvider(create: (context) => PlaybackProgressModel()),
+        ChangeNotifierProvider(create: (context) => PlaybackDeviceModel()),
       ],
       child: MaterialApp(
         title: 'Music',

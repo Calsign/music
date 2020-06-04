@@ -1,6 +1,10 @@
 package com.calsignlabs.music
 
+import android.content.Context
 import android.os.AsyncTask
+import androidx.mediarouter.media.MediaControlIntent
+import androidx.mediarouter.media.MediaRouteSelector
+import androidx.mediarouter.media.MediaRouter
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,6 +19,7 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.*
 
 import com.calsignlabs.music.MediaPlayerWrapper.State.*
+import com.google.android.gms.cast.framework.CastContext
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
@@ -29,6 +34,11 @@ class MainActivity : FlutterActivity() {
     private var queue: ArrayList<String> = ArrayList()
 
     private val scheduledExecutorService = Executors.newScheduledThreadPool(1)
+
+    private val routeManager = RouteManager(
+            { routes -> invokeStatus("playbackDevices", routes) },
+            { selectedRoute -> invokeStatus("selectedPlaybackDevice", selectedRoute) }
+    )
 
     init {
         NewPipe.init(DownloaderImpl.init(null))
@@ -51,6 +61,107 @@ class MainActivity : FlutterActivity() {
                 ))
             }
         }, 1000, 1000, TimeUnit.MILLISECONDS)
+    }
+
+    class RouteManager(private val updateCallback: (List<Map<String, Any?>>) -> Unit,
+                       private val selectedCallback: (String?) -> Unit) : MediaRouter.Callback() {
+        private val routes = HashMap<String, MediaRouter.RouteInfo>()
+        private var currentRoute: String? = null
+
+        fun startSearch(context: Context) {
+            routes.clear()
+
+            val mediaRouter = MediaRouter.getInstance(context)
+
+            // detect phone, bluetooth, etc.
+            val normalRouteSelector = MediaRouteSelector.Builder()
+                    .addControlCategory(MediaControlIntent.CATEGORY_LIVE_AUDIO)
+                    .build()
+            // detect Google cast devices
+            val castRouteSelector = CastContext.getSharedInstance(context).mergedSelector
+
+            mediaRouter.addCallback(normalRouteSelector, this, MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN)
+            mediaRouter.addCallback(castRouteSelector, this, MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN)
+
+            // pick up default route
+            for (route in mediaRouter.routes) {
+                routes[route.id] = route
+            }
+            currentRoute = mediaRouter.selectedRoute.id
+        }
+
+        fun stopSearch(context: Context) {
+            MediaRouter.getInstance(context).removeCallback(this)
+        }
+
+        fun selectRoute(context: Context, id: String): Boolean {
+            val route = routes[id]
+            return if (route != null) {
+                val mediaRouter = MediaRouter.getInstance(context)
+                // we need to unselect first if we are switching to the default route
+                // because we can't actually switch to the default route
+                mediaRouter.unselect(MediaRouter.UNSELECT_REASON_ROUTE_CHANGED)
+                mediaRouter.selectRoute(route)
+                true
+            } else {
+                false
+            }
+        }
+
+        private fun invokeUpdate() {
+            updateCallback(routes.values.map{r -> packRouteInfo(r)})
+        }
+
+        private fun invokeSelected() {
+            selectedCallback(currentRoute)
+        }
+
+        override fun onRouteAdded(router: MediaRouter?, route: MediaRouter.RouteInfo?) {
+            if (route != null) {
+                routes[route.id] = route
+                invokeUpdate()
+            }
+        }
+
+        override fun onRouteChanged(router: MediaRouter?, route: MediaRouter.RouteInfo?) {
+            if (route != null) {
+                routes[route.id] = route
+                invokeUpdate()
+            }
+        }
+
+        override fun onRoutePresentationDisplayChanged(router: MediaRouter?, route: MediaRouter.RouteInfo?) {
+            if (route != null) {
+                routes[route.id] = route
+                invokeUpdate()
+            }
+        }
+
+        override fun onRouteRemoved(router: MediaRouter?, route: MediaRouter.RouteInfo?) {
+            if (route != null) {
+                routes.remove(route.id)
+                invokeUpdate()
+            }
+        }
+
+        override fun onRouteSelected(router: MediaRouter?, route: MediaRouter.RouteInfo?) {
+            super.onRouteSelected(router, route)
+            if (route != null) {
+                currentRoute = route.id
+                invokeSelected()
+            }
+        }
+
+        companion object {
+            fun packRouteInfo(route: MediaRouter.RouteInfo): Map<String, Any?> {
+                return hashMapOf(
+                        "id" to route.id,
+                        "name" to route.name,
+                        "description" to route.description,
+                        "deviceType" to route.deviceType
+                )
+            }
+        }
     }
 
     private fun getCurrentMediaPlayer(): MediaPlayerWrapper? {
@@ -112,6 +223,16 @@ class MainActivity : FlutterActivity() {
                                 throw Exception("No position specified to skipTo")
                             }
                         }
+                        "startPlaybackDeviceSearch" -> routeManager.startSearch(context)
+                        "stopPlaybackDeviceSearch" -> routeManager.stopSearch(context)
+                        "selectPlaybackDevice" -> {
+                            val routeId: String? = call.argument("device")
+                            if (routeId != null) {
+                                routeManager.selectRoute(context, routeId)
+                            } else {
+                                throw Exception("No device specified to selectPlaybackDevice")
+                            }
+                        }
                     }
                 }
         status = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.calsignlabs.music/status")
@@ -122,6 +243,7 @@ class MainActivity : FlutterActivity() {
             mediaPlayer.release()
         }
         scheduledExecutorService.shutdown()
+        routeManager.stopSearch(context)
         super.onDestroy()
     }
 
