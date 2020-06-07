@@ -1,7 +1,9 @@
 package com.calsignlabs.music
 
 import android.content.Context
+import android.net.Uri
 import android.os.AsyncTask
+import android.os.Bundle
 import androidx.mediarouter.media.MediaControlIntent
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
@@ -18,49 +20,85 @@ import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeStreamLi
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import java.util.*
 
-import com.calsignlabs.music.MediaPlayerWrapper.State.*
 import com.google.android.gms.cast.framework.CastContext
+import com.google.android.gms.cast.framework.CastSession
+import com.google.android.gms.cast.framework.SessionManagerListener
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-class MainActivity : FlutterActivity() {
+import com.calsignlabs.music.PlaybackManager.State.*
+
+class MainActivity : FlutterActivity(), PlaybackManager.Callback {
     private var status: MethodChannel? = null
 
     private val youtubeService = YoutubeService(0)
     private val youtubeSearchQueryHandler = YoutubeSearchQueryHandlerFactory.getInstance()
     private val youtubeStreamLinkHandler = YoutubeStreamLinkHandlerFactory.getInstance()
 
-    private val mediaPool = LinkedHashMap<String, MediaPlayerWrapper>()
-    private var queue: ArrayList<String> = ArrayList()
+    private lateinit var localPlaybackManager: PlaybackManager
+    private var castPlaybackManager: CastPlaybackManager? = null
+
+    private fun getPlaybackManager(): PlaybackManager {
+        return castPlaybackManager ?: localPlaybackManager
+    }
+
+    override fun onStateChange(state: PlaybackManager.State) {
+        runOnUiThread {
+            when (state) {
+                INITIAL -> invokeStatus("onPause")
+                LOADING -> invokeStatus("onBuffering")
+                PAUSED -> invokeStatus("onPause")
+                PLAYING -> invokeStatus("onPlay")
+                UNKNOWN -> {
+                }
+                ERROR -> {
+                }
+            }
+        }
+    }
+
+    override fun onTrackChange(id: String) {
+        runOnUiThread {
+            invokeStatus("onTrackChange", id)
+        }
+    }
+
+    override fun onSeekComplete(position: Long) {
+        updatePosition()
+    }
 
     private val scheduledExecutorService = Executors.newScheduledThreadPool(1)
 
     private val routeManager = RouteManager(
             { routes -> invokeStatus("playbackDevices", routes) },
-            { selectedRoute -> invokeStatus("selectedPlaybackDevice", selectedRoute) }
+            { selectedRoute ->
+                invokeStatus("selectedPlaybackDevice", selectedRoute)
+            }
     )
+
+    private fun updatePosition() {
+        runOnUiThread {
+            var position: Long = -1
+            var totalDuration: Long = -1
+
+            val playbackManager = getPlaybackManager()
+            if (playbackManager.isState(PLAYING, PAUSED)) {
+                position = playbackManager.position()
+                totalDuration = playbackManager.duration()
+            }
+
+            invokeStatus("playbackProgressUpdate", hashMapOf(
+                    "position" to position,
+                    "totalDuration" to totalDuration
+            ))
+        }
+    }
 
     init {
         NewPipe.init(DownloaderImpl.init(null))
 
-        scheduledExecutorService.scheduleAtFixedRate({
-            runOnUiThread {
-                var position: Int = -1
-                var totalDuration: Int = -1
-
-                val mediaPlayer = getCurrentMediaPlayer()
-
-                if (mediaPlayer != null && mediaPlayer.isState(STARTED, PAUSED, COMPLETED)) {
-                    position = mediaPlayer.currentPosition()
-                    totalDuration = mediaPlayer.duration()
-                }
-
-                invokeStatus("playbackProgressUpdate", hashMapOf(
-                        "position" to position,
-                        "totalDuration" to totalDuration
-                ))
-            }
-        }, 1000, 1000, TimeUnit.MILLISECONDS)
+        scheduledExecutorService.scheduleAtFixedRate({ updatePosition() },
+                1000, 1000, TimeUnit.MILLISECONDS)
     }
 
     class RouteManager(private val updateCallback: (List<Map<String, Any?>>) -> Unit,
@@ -109,7 +147,7 @@ class MainActivity : FlutterActivity() {
         }
 
         private fun invokeUpdate() {
-            updateCallback(routes.values.map{r -> packRouteInfo(r)})
+            updateCallback(routes.values.map { r -> packRouteInfo(r) })
         }
 
         private fun invokeSelected() {
@@ -164,10 +202,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun getCurrentMediaPlayer(): MediaPlayerWrapper? {
-        return if (mediaPool.isNotEmpty() && queue.isNotEmpty()) mediaPool[queue[0]] else null
-    }
-
     private fun invokeStatus(method: String, data: Any?) {
         try {
             status?.invokeMethod(method, data)
@@ -186,133 +220,173 @@ class MainActivity : FlutterActivity() {
                 .setMethodCallHandler { call, result ->
                     when (call.method) {
                         "getYoutubeStreamUri" -> {
-                            val uri: String? = call.argument("uri")
-                            if (uri != null) {
-                                getYoutubeStreamUri(uri, result)
-                            } else {
-                                throw Exception("No URI specified to loadYoutubeUri")
-                            }
+                            val uri: String = call.argument("uri") ?: error("missing uri")
+                            getYoutubeStreamUri(uri, result)
                         }
                         "searchYoutube" -> {
-                            val query: String? = call.argument("query")
-                            if (query != null) {
-                                searchYoutube(query, result)
-                            } else {
-                                throw Exception("No query specified to searchYoutube")
-                            }
+                            val query: String = call.argument("query") ?: "missing query"
+                            searchYoutube(query, result)
                         }
                         "play" -> play(result)
                         "pause" -> pause(result)
-                        "setQueue" -> {
-                            val newQueue: List<String>? = call.argument("queue")
-                            val sweep: Boolean? = call.argument("sweep")
-                            val resetCurrent: Boolean? = call.argument("resetCurrent")
-                            val startIfPaused: Boolean? = call.argument("startIfPaused")
-                            if (newQueue != null) {
-                                setQueue(newQueue, sweep ?: true, resetCurrent ?: false,
-                                        startIfPaused ?: true, result)
-                            } else {
-                                throw Exception("No queue specified to setQueue")
-                            }
-                        }
                         "skipTo" -> {
-                            val position: Int? = call.argument("position")
-                            if (position != null) {
-                                skipTo(position, result)
-                            } else {
-                                throw Exception("No position specified to skipTo")
-                            }
+                            val position: Int = call.argument("position")
+                                    ?: error("missing position")
+                            skipTo(position.toLong(), result)
                         }
+
+                        "queueSet" -> {
+                            val items = unpackQueueItems(call.argument("items")
+                                    ?: error("missing items"))
+                            val startIndex: Int = call.argument("startIndex")
+                                    ?: error("missing start index")
+                            getPlaybackManager().queueSet(items, startIndex)
+                            result.success(null)
+                        }
+                        "queueInsert" -> {
+                            val items = unpackQueueItems(call.argument("items")
+                                    ?: error("missing items"))
+                            val index: Int = call.argument("index") ?: error("missing index")
+                            getPlaybackManager().queueInsert(items, index)
+                            result.success(null)
+                        }
+                        "queueRemove" -> {
+                            val startIndex: Int = call.argument("startIndex")
+                                    ?: error("missing start index")
+                            val length: Int = call.argument("length") ?: error("missing length")
+                            getPlaybackManager().queueRemove(startIndex, length)
+                            result.success(null)
+                        }
+                        "queueMove" -> {
+                            val fromIndex: Int = call.argument("fromIndex")
+                                    ?: error("missing from index")
+                            val toIndex: Int = call.argument("toIndex") ?: error("missing to index")
+                            getPlaybackManager().queueMove(fromIndex, toIndex)
+                            result.success(null)
+                        }
+                        "queueSelect" -> {
+                            val index: Int = call.argument("index") ?: error("missing index")
+                            getPlaybackManager().queueSelect(index)
+                            result.success(null)
+                        }
+
+                        "setRepeatMode" -> {
+                            // TODO finish implementing repeat mode
+                        }
+
                         "startPlaybackDeviceSearch" -> routeManager.startSearch(context)
                         "stopPlaybackDeviceSearch" -> routeManager.stopSearch(context)
                         "selectPlaybackDevice" -> {
-                            val routeId: String? = call.argument("device")
-                            if (routeId != null) {
-                                routeManager.selectRoute(context, routeId)
-                            } else {
-                                throw Exception("No device specified to selectPlaybackDevice")
-                            }
+                            val routeId: String = call.argument("device") ?: error("missing device")
+                            routeManager.selectRoute(context, routeId)
+                            result.success(null)
                         }
+                        else -> error("unrecognized platform method: ${call.method}")
                     }
                 }
         status = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.calsignlabs.music/status")
     }
 
-    override fun onDestroy() {
-        for (mediaPlayer in mediaPool.values) {
-            mediaPlayer.release()
+    private fun unpackQueueItems(items: List<Map<String, String>>): List<PlaybackManager.QueueItem> {
+        return items.map { item ->
+            PlaybackManager.QueueItem(
+                    id = item["id"] ?: error("item missing id"),
+                    localUri = null, // TODO
+                    remoteUri = Uri.parse(item["remoteUri"] ?: error("missing item remote uri"))
+            )
         }
+    }
+
+    private fun updateCastPlayer() {
+        castPlaybackManager?.release()
+        val remoteMediaClient = CastContext.getSharedInstance(context)
+                ?.sessionManager?.currentCastSession?.remoteMediaClient
+        if (remoteMediaClient != null) {
+            castPlaybackManager = CastPlaybackManager(remoteMediaClient, this)
+        } else {
+            castPlaybackManager = null
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        localPlaybackManager = ExoPlayerPlaybackManager(context, this)
+
+        CastContext.getSharedInstance(context).sessionManager.addSessionManagerListener(
+                object : SessionManagerListener<CastSession> {
+                    override fun onSessionStarted(p0: CastSession?, p1: String?) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionResumeFailed(p0: CastSession?, p1: Int) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionSuspended(p0: CastSession?, p1: Int) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionEnded(p0: CastSession?, p1: Int) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionResumed(p0: CastSession?, p1: Boolean) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionStarting(p0: CastSession?) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionResuming(p0: CastSession?, p1: String?) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionEnding(p0: CastSession?) {
+                        updateCastPlayer()
+                    }
+
+                    override fun onSessionStartFailed(p0: CastSession?, p1: Int) {
+                        updateCastPlayer()
+                    }
+                }, CastSession::class.java)
+    }
+
+    override fun onDestroy() {
+        localPlaybackManager.release()
+        castPlaybackManager?.release()
         scheduledExecutorService.shutdown()
         routeManager.stopSearch(context)
         super.onDestroy()
     }
 
     private fun play(result: MethodChannel.Result) {
-        var played = false
-        synchronized(this) {
-            val currentMediaPlayer = getCurrentMediaPlayer()
-            if (currentMediaPlayer != null && currentMediaPlayer.isState(PAUSED, PREPARED, COMPLETED)) {
-                try {
-                    currentMediaPlayer.start()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                played = true
-            }
-        }
-        if (played) {
-            invokeStatus("onPlay")
+        val playbackManager = getPlaybackManager()
+        if (playbackManager.isState(PAUSED)) {
+            playbackManager.play()
             result.success(null)
         } else {
-            result.error("Failed", "Already playing: ${getCurrentMediaPlayer()?.state()?.name}", null)
+            result.error("Failed to play", playbackManager.state().name, null)
         }
     }
 
     private fun pause(result: MethodChannel.Result) {
-        var paused = false
-        synchronized(this) {
-            val currentMediaPlayer = getCurrentMediaPlayer()
-            if (currentMediaPlayer != null && currentMediaPlayer.isState(STARTED, PREPARED)) {
-                try {
-                    currentMediaPlayer.pause()
-                    paused = true
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
-        if (paused) {
-            invokeStatus("onPause")
+        val playbackManager = getPlaybackManager()
+        if (playbackManager.isState(PLAYING)) {
+            playbackManager.pause()
             result.success(null)
         } else {
-            result.error("Failed", "Already paused: ${getCurrentMediaPlayer()?.state()?.name}", null)
+            result.error("Failed to pause", playbackManager.state().name, null)
         }
     }
 
-    private fun skipTo(position: Int, result: MethodChannel.Result) {
-        var skipped = false
-        synchronized(this) {
-            val currentMediaPlayer = getCurrentMediaPlayer()
-            try {
-                if (currentMediaPlayer != null) {
-                    if (currentMediaPlayer.isState(STARTED, PAUSED)) {
-                        currentMediaPlayer.seekTo(position)
-                        skipped = true
-                    } else if (currentMediaPlayer.isState(COMPLETED)) {
-                        currentMediaPlayer.start()
-                        currentMediaPlayer.pause()
-                        currentMediaPlayer.seekTo(position)
-                        skipped = true
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-        if (skipped) {
+    private fun skipTo(position: Long, result: MethodChannel.Result) {
+        val playbackManager = getPlaybackManager()
+        if (playbackManager.isState(PLAYING, PAUSED)) {
+            playbackManager.seek(position)
             result.success(null)
         } else {
-            result.error("Failed", "Cannot seek: ${getCurrentMediaPlayer()?.state()?.name}", null)
+            result.error("Failed to seek", playbackManager.state().name, null)
         }
     }
 
@@ -355,7 +429,7 @@ class MainActivity : FlutterActivity() {
     private fun getYoutubeStreamUri(uri: String, result: MethodChannel.Result) {
         AsyncTask.execute {
             try {
-                var streamUri: String? = null
+                var streamUri: Uri? = null
                 var count = 0
                 // sometimes it fails to get the stream... try again?
                 while (count < 3 && streamUri == null) {
@@ -364,7 +438,7 @@ class MainActivity : FlutterActivity() {
                 }
                 runOnUiThread {
                     if (streamUri != null) {
-                        result.success(streamUri)
+                        result.success(streamUri.toString())
                     } else {
                         result.error("Failed", "No audio streams found", null)
                     }
@@ -376,152 +450,20 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun performGetYoutubeStreamUri(uri: String): String? {
+    private fun performGetYoutubeStreamUri(uri: String): Uri? {
         return try {
             val streamExtractor = youtubeService.getStreamExtractor(youtubeStreamLinkHandler.fromUrl(uri))
             streamExtractor.fetchPage()
 
             if (streamExtractor.audioStreams.isNotEmpty()) {
                 streamExtractor.audioStreams.sortBy { stream -> -stream.averageBitrate }
-                streamExtractor.audioStreams[0].url
+                Uri.parse(streamExtractor.audioStreams[0].url)
             } else {
                 null
             }
         } catch (e: Exception) {
             e.printStackTrace()
             null
-        }
-    }
-
-    private fun setQueue(newQueue: Iterable<String>, sweep: Boolean, resetCurrent: Boolean, startIfPaused: Boolean, result: MethodChannel.Result) {
-        try {
-            performSetQueue(newQueue, sweep, resetCurrent, startIfPaused)
-            result.success(null)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            result.error("Failed", e.message, null)
-        }
-    }
-
-    private fun performSetQueue(newQueueIterable: Iterable<String>, sweep: Boolean, resetCurrent: Boolean, startIfPaused: Boolean) {
-        val newQueue = newQueueIterable.toList()
-        val firstNewTrack = if (newQueue.isNotEmpty()) newQueue[0] else null
-
-        synchronized(this) {
-            val wasPlaying = getCurrentMediaPlayer()?.isState(STARTED) ?: false
-
-            if (queue.isNotEmpty() && newQueue.isNotEmpty()) {
-                if (queue.first() == firstNewTrack) {
-                    if (resetCurrent && getCurrentMediaPlayer()?.isState(STARTED) == true) {
-                        getCurrentMediaPlayer()?.seekTo(0)
-                    }
-                } else {
-                    if (getCurrentMediaPlayer()?.isState(STARTED, PAUSED) == true) {
-                        if (getCurrentMediaPlayer()?.isState(STARTED) == true) {
-                            getCurrentMediaPlayer()?.pause()
-                            invokeStatus("onPause")
-                        }
-                        getCurrentMediaPlayer()?.seekTo(0)
-                    }
-                }
-            }
-
-            val oldSet = LinkedHashSet(queue)
-            val newSet = LinkedHashSet(newQueue)
-
-            if (sweep) {
-                for (removedYoutubeUri in oldSet - newSet) {
-                    val player = mediaPool[removedYoutubeUri]
-                    player?.setOnComplete { false }
-                    player?.pause()
-                    AsyncTask.execute {
-                        player?.stop()
-                        player?.release()
-                    }
-                    mediaPool.remove(removedYoutubeUri)
-                }
-            }
-
-            for (addedYoutubeUri in newSet - oldSet) {
-                val player = MediaPlayerWrapper()
-                AsyncTask.execute {
-                    val rawStreamUri = performGetYoutubeStreamUri(addedYoutubeUri)
-                    player.setDataSource(rawStreamUri)
-                    player.prepare()
-                }
-                mediaPool[addedYoutubeUri] = player
-            }
-
-            newQueue.foldRight<String, String?>(null) { youtubeUri, nextYoutubeUri ->
-                val player = mediaPool[youtubeUri]
-                val nextPlayer = mediaPool[nextYoutubeUri]
-
-                player!!.setOnComplete {
-                    var valid = true
-                    var paused = false
-                    var nextTrack = false
-                    synchronized(this) {
-                        if (queue.isNotEmpty() && youtubeUri != queue.first()) {
-                            valid = false
-                        } else {
-                            if (nextYoutubeUri == null) {
-                                paused = true
-                            } else {
-                                nextPlayer!!.start()
-                                queue.removeAt(0)
-                                nextTrack = true
-                            }
-                        }
-                    }
-                    if (paused) {
-                        invokeStatus("onPause")
-                    }
-                    if (nextTrack) {
-                        invokeStatus("onNextTrack")
-                    }
-                    valid
-                }
-                youtubeUri
-            }
-
-            if (newQueue.isEmpty()) {
-                invokeStatus("onPause")
-            }
-
-            for (entry in mediaPool.entries) {
-                if (entry.key == firstNewTrack && (startIfPaused || wasPlaying)) {
-                    entry.value.setOnPrepare {
-                        entry.value.start()
-                        invokeStatus("onPlay")
-                    }
-                    if (entry.value.isState(PREPARED, PAUSED, COMPLETED)) {
-                        try {
-                            entry.value.start()
-                            invokeStatus("onPlay")
-                        } catch (e: Exception) {
-                            // don't think this actually happens
-                            e.printStackTrace()
-                        }
-                    }
-                } else {
-                    // if we don't do this we might get duplicated playback when this MediaPlayer
-                    // is re-used in the future and finishes preparing again
-                    entry.value.setOnPrepare { }
-                    try {
-                        // this is really dumb but sometimes we have issues
-                        // so just be safe and make sure it's paused
-                        entry.value.pause()
-                        if (entry.key != firstNewTrack) {
-                            entry.value.seekTo(0)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-
-            queue.clear()
-            queue.addAll(newQueue)
         }
     }
 }

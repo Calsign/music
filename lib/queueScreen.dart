@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:music/lastfm.dart';
 import 'package:music/swipeable.dart';
 import 'package:music/util.dart';
 
@@ -225,14 +226,22 @@ class NowPlayingScreen extends StatelessWidget {
                         shape: BoxShape.circle,
                         color: Colors.white.withOpacity(0.1),
                       ),
-                      child: IconButton(
-                        icon: Icon(
-                            model.isPlaying ? Icons.pause : Icons.play_arrow),
-                        iconSize: 56.0,
-                        color: Theme.of(context).accentColor,
-                        padding: const EdgeInsets.all(12.0),
-                        onPressed: () => model.togglePlaying(),
-                      ),
+                      child: model.isBuffering
+                          ? Container( // this is to get the spacing right
+                              width: 80.0,
+                              height: 80.0,
+                              padding: const EdgeInsets.all(24.0),
+                              child: CircularProgressIndicator(),
+                            )
+                          : IconButton(
+                              icon: Icon(model.isPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow),
+                              iconSize: 56.0,
+                              color: Theme.of(context).accentColor,
+                              padding: const EdgeInsets.all(12.0),
+                              onPressed: () => model.togglePlaying(),
+                            ),
                     ),
                   ),
                   IconButton(
@@ -316,10 +325,23 @@ Widget nowPlayingContents(BuildContext context, QueueModel model,
           secondData: ListEntrySecondData.releaseGroup,
           right: Row(
             children: <Widget>[
-              IconButton(
-                icon: Icon(model.isPlaying ? Icons.pause : Icons.play_arrow),
-                onPressed: () => model.togglePlaying(),
-              ),
+              model.isBuffering
+                  ? Container(
+                      // this is for getting the spacing right
+                      alignment: Alignment.center,
+                      width: 48.0,
+                      height: 48.0,
+                      child: SizedBox(
+                        width: 24.0,
+                        height: 24.0,
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : IconButton(
+                      icon: Icon(
+                          model.isPlaying ? Icons.pause : Icons.play_arrow),
+                      onPressed: () => model.togglePlaying(),
+                    ),
               IconButton(
                 icon: const Icon(Icons.skip_next),
                 onPressed: () => model.skipNext(),

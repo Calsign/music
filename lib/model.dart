@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'util.dart';
 import 'data.dart';
 
 /// Number of tracks to buffer in advance. Must be >= 2.
@@ -39,37 +40,53 @@ class MainPageIndexModel extends ChangeNotifier {
 class QueueModel extends ChangeNotifier {
   List<QueuedTrackInfo> _queuedTracks;
   int _currentlyPlayingIndex;
-  bool _isPlaying;
+  bool _isPlaying, _isBuffering;
 
   Map<String, Future<String>> _streamUris;
 
   bool get isPlaying => _isPlaying;
 
+  bool get isBuffering => _isBuffering;
+
   bool get hasQueue => _queuedTracks.isNotEmpty;
 
-  QueuedTrackInfo get currentTrack =>
-      hasQueue ? _queuedTracks[_currentlyPlayingIndex] : null;
+  QueuedTrackInfo get currentTrack => hasQueue && _currentlyPlayingIndex != -1
+      ? _queuedTracks[_currentlyPlayingIndex]
+      : null;
 
   QueueModel() {
     _queuedTracks = List();
     _currentlyPlayingIndex = 0;
     _isPlaying = false;
+    _isBuffering = false;
 
     _streamUris = Map();
 
     _PlaybackManager().setCallbacks("queueModel", {
       "onPlay": (args) {
         _isPlaying = true;
+        _isBuffering = false;
         notifyListeners();
       },
       "onPause": (args) {
         _isPlaying = false;
+        _isBuffering = false;
         notifyListeners();
       },
-      "onNextTrack": (args) {
-        _currentlyPlayingIndex++;
+      "onBuffering": (args) {
+        _isBuffering = true;
         notifyListeners();
-        _updatePlaybackManagerQueue();
+      },
+      "onTrackChange": (args) {
+        var newTrack = args as String;
+        // TODO this seems highly error prone
+        if (queuedTracks.isEmpty ||
+            newTrack != queuedTracks[_currentlyPlayingIndex].mbid) {
+          _currentlyPlayingIndex = queuedTracks
+              .indexWhere((trackInfo) => trackInfo.mbid == newTrack);
+          notifyListeners();
+          //_updatePlaybackManagerQueue();
+        }
       },
     });
   }
@@ -92,49 +109,42 @@ class QueueModel extends ChangeNotifier {
 
   List<QueuedTrackInfo> get queuedTracks => UnmodifiableListView(_queuedTracks);
 
-  Future<void> _updatePlaybackManagerQueue(
-      {resetCurrent: false, startIfPaused: true}) {
-    List<QueuedTrackInfo> toSubmit = _queuedTracks.sublist(
-        _currentlyPlayingIndex,
-        math.min(_currentlyPlayingIndex + BUFFER_AHEAD, _queuedTracks.length));
+  Future<Pair<String, String>> fetchStreamUri(QueuedTrackInfo trackInfo) {
+    return _PlaybackManager()
+        .searchYoutube(
+            "${trackInfo.title} ${trackInfo.artists.first.value} ${trackInfo.releaseGroup.value}")
+        .then((results) => _PlaybackManager()
+            .getYoutubeStreamUri(results.selectBest(trackInfo).uri)
+            .then((remoteUri) => Pair(trackInfo.mbid, remoteUri)));
+  }
 
-    for (var trackInfo in toSubmit) {
-      if (!_streamUris.containsKey(trackInfo)) {
-        _streamUris[trackInfo.mbid] = _PlaybackManager()
-            .searchYoutube(
-                "${trackInfo.title} ${trackInfo.artists.first.value} ${trackInfo.releaseGroup.value}")
-            .then((results) => results.selectBest(trackInfo).uri);
-      }
-    }
-
-    for (var staleTrack in Set<String>.from(_streamUris.keys).difference(
-        Set<String>.from(toSubmit.map((trackInfo) => trackInfo.mbid)))) {
-      _streamUris.remove(staleTrack);
-    }
-
-    Iterable<Future<String>> futures = toSubmit
-        .map<Future<String>>((trackInfo) => _streamUris[trackInfo.mbid]);
-
-    Future<void> all = Future.wait(futures).then((uris) =>
-        _PlaybackManager().setQueue(uris, startIfPaused: startIfPaused));
-
-    if (toSubmit.isNotEmpty) {
-      // load the first track, then come back and load the subsequent tracks
-      return futures.first.then((firstUri) => _PlaybackManager().setQueue(
-          [firstUri],
-          sweep: false,
-          resetCurrent: resetCurrent,
-          startIfPaused: startIfPaused).then((_) => all));
+  Future<void> _performSet(
+      Iterable<QueuedTrackInfo> trackInfo, int startIndex) {
+    // TODO implement startIndex
+    if (trackInfo.length == 0) {
+      return _PlaybackManager().queueSet([], startIndex);
     } else {
-      return all;
+      // set the first one and insert the rest when they are loaded
+      return fetchStreamUri(trackInfo.first).then((pair) => _PlaybackManager()
+          .queueSet(
+              [pair], 0).then((_) => _performInsert(trackInfo.skip(1), 1)));
+    }
+  }
+
+  Future<void> _performInsert(Iterable<QueuedTrackInfo> trackInfo, int index) {
+    if (trackInfo.isEmpty) {
+      return Future.value(null);
+    } else {
+      return fetchStreamUri(trackInfo.first).then((pair) => _PlaybackManager()
+          .queueInsert([pair], index).then(
+              (_) => _performInsert(trackInfo.skip(1), index + 1)));
     }
   }
 
   Future<void> addAllToQueue(Iterable<QueuedTrackInfo> trackInfo) {
     _queuedTracks.addAll(trackInfo);
     notifyListeners();
-    return _updatePlaybackManagerQueue(
-        resetCurrent: false, startIfPaused: false);
+    return _performInsert(trackInfo, _queuedTracks.length - trackInfo.length);
   }
 
   Future<void> addToQueue(QueuedTrackInfo trackInfo) {
@@ -144,8 +154,7 @@ class QueueModel extends ChangeNotifier {
   Future<void> playAllNext(Iterable<QueuedTrackInfo> trackInfo) {
     _queuedTracks.insertAll(_currentlyPlayingIndex + 1, trackInfo);
     notifyListeners();
-    return _updatePlaybackManagerQueue(
-        resetCurrent: false, startIfPaused: false);
+    return _performInsert(trackInfo, _currentlyPlayingIndex + 1);
   }
 
   Future<void> playNext(QueuedTrackInfo trackInfo) {
@@ -156,8 +165,7 @@ class QueueModel extends ChangeNotifier {
     if (pos >= 0 && pos < _queuedTracks.length) {
       _currentlyPlayingIndex = pos;
       notifyListeners();
-      return _updatePlaybackManagerQueue(
-          resetCurrent: true, startIfPaused: true);
+      return _PlaybackManager().queueSelect(pos);
     } else {
       return Future.value(null);
     }
@@ -180,19 +188,15 @@ class QueueModel extends ChangeNotifier {
     _queuedTracks.clear();
     _currentlyPlayingIndex = 0;
     notifyListeners();
-    return _updatePlaybackManagerQueue();
+    return _performSet(<QueuedTrackInfo>[], 0);
   }
 
   Future<void> setQueue(Iterable<QueuedTrackInfo> trackInfo, {startIndex = 0}) {
-    var trackInfoList = trackInfo.toList();
-    var resetCurrent = _queuedTracks.isNotEmpty &&
-        _queuedTracks[_currentlyPlayingIndex].mbid ==
-            trackInfoList[startIndex].mbid;
     _queuedTracks.clear();
-    _queuedTracks.addAll(trackInfoList);
+    _queuedTracks.addAll(trackInfo);
     _currentlyPlayingIndex = startIndex;
     notifyListeners();
-    return _updatePlaybackManagerQueue(resetCurrent: resetCurrent);
+    return _performSet(trackInfo, startIndex);
   }
 
   Future<void> removeFromQueue(int removeIndex) {
@@ -205,8 +209,7 @@ class QueueModel extends ChangeNotifier {
         _isPlaying = false;
       }
       notifyListeners();
-      return _updatePlaybackManagerQueue(
-          resetCurrent: false, startIfPaused: false);
+      return _PlaybackManager().queueRemove(removeIndex, 1);
     } else {
       return Future.value(null);
     }
@@ -261,7 +264,8 @@ class PlaybackDeviceModel extends ChangeNotifier {
     _PlaybackManager().setCallbacks("playbackDeviceModel", {
       "playbackDevices": (devices) {
         _devices = devices
-            .map<PlaybackDevice>((json) => PlaybackDevice.fromJson(json)).toList();
+            .map<PlaybackDevice>((json) => PlaybackDevice.fromJson(json))
+            .toList();
         notifyListeners();
       },
       "selectedPlaybackDevice": (selectedDevice) {
@@ -328,21 +332,6 @@ class _PlaybackManager {
     }
   }
 
-  // not currently used
-  Future<String> getYoutubeStreamUri(String youtubeUri) =>
-      _invokePlatformMethod("getYoutubeStreamUri", {"uri": youtubeUri});
-
-  Future<void> setQueue(List<String> queue,
-          {bool sweep = true,
-          bool resetCurrent = false,
-          bool startIfPaused = true}) =>
-      _invokePlatformMethod("setQueue", {
-        "queue": queue,
-        "sweep": sweep,
-        "resetCurrent": resetCurrent,
-        "startIfPaused": startIfPaused
-      });
-
   Future<List<YoutubeSearchResult>> searchYoutube(String query) {
     return _invokePlatformMethod("searchYoutube", {"query": query}).then(
         (results) => results
@@ -351,6 +340,47 @@ class _PlaybackManager {
             ?.map<YoutubeSearchResult>(
                 (entry) => YoutubeSearchResult.fromJson(entry.value, entry.key))
             ?.toList());
+  }
+
+  /// note: returned URI has expiration time (in seconds since the epoch)
+  /// encoded; appears to be six hours after the URI was obtained.
+  /// we may want to fetch a new URI before the expiration.
+  Future<String> getYoutubeStreamUri(String youtubeUri) =>
+      _invokePlatformMethod("getYoutubeStreamUri", {"uri": youtubeUri});
+
+  List<Map<String, dynamic>> packQueueItems(
+      Iterable<Pair<String, String>> items) {
+    return items
+        .map<Map<String, dynamic>>((item) => {
+              "id": item.left,
+              "localUri": null,
+              "remoteUri": item.right,
+            })
+        .toList();
+  }
+
+  Future<void> queueSet(Iterable<Pair<String, String>> items, int startIndex) {
+    return _invokePlatformMethod(
+        "queueSet", {"items": packQueueItems(items), "startIndex": startIndex});
+  }
+
+  Future<void> queueInsert(Iterable<Pair<String, String>> items, int index) {
+    return _invokePlatformMethod(
+        "queueInsert", {"items": packQueueItems(items), "index": index});
+  }
+
+  Future<void> queueRemove(int startIndex, int length) {
+    return _invokePlatformMethod(
+        "queueRemove", {"startIndex": startIndex, "length": length});
+  }
+
+  Future<void> queueMove(int fromIndex, int toIndex) {
+    return _invokePlatformMethod(
+        "queueMove", {"fromIndex": fromIndex, "toIndex": toIndex});
+  }
+
+  Future<void> queueSelect(int index) {
+    return _invokePlatformMethod("queueSelect", {"index": index});
   }
 
   Future<void> play() => _invokePlatformMethod("play");
